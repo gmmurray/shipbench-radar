@@ -2,6 +2,158 @@
  * one surface. The page background and text color come from the board's
  * `.sb-standalone` class on <body>. */
 
+:root {
+  --radar-tabs-h: 2.5rem;
+}
+
+.radar-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- Tab bar ------------------------------------------------------------ */
+
+.radar-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: stretch;
+  height: var(--radar-tabs-h);
+  border-bottom: 1px solid var(--sb-iron);
+  background: var(--sb-surface);
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.radar-tabs-mark {
+  display: flex;
+  align-items: center;
+  padding: 0 1rem 0 1.25rem;
+  font-family: "Intel One Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sb-silver);
+  border-right: 1px solid var(--sb-divider);
+}
+
+/* Scrolls sideways when tabs outrun the window. `overflow-x: auto` alone
+ * makes the y axis scrollable too, so any 1px overflow would show a vertical
+ * scrollbar; pin it off. */
+.radar-tabs-list {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.radar-tab {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 16rem;
+  padding: 0 1rem;
+  border-right: 1px solid var(--sb-divider);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sb-silver);
+  text-decoration: none;
+  transition:
+    color 120ms,
+    background-color 120ms;
+}
+
+.radar-tab:hover {
+  color: var(--sb-frosted);
+  background: var(--sb-surface2);
+}
+
+.radar-tab:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: -2px;
+}
+
+.radar-tab[aria-current="page"] {
+  color: var(--sb-frosted);
+  background: var(--sb-canvas);
+}
+
+/* Active marker: an accent rule along the tab's bottom edge. It stays inside
+ * the tab; reaching over the bar's border would overflow the scroll area. */
+.radar-tab[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--sb-accent);
+}
+
+.radar-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-tab[data-unavailable] .radar-tab-label {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: var(--sb-iron);
+}
+
+/* Changed while another project was on screen. */
+.radar-tab-dot {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--sb-accent);
+}
+
+/* ---- Fitting the board under the tab bar -------------------------------- *
+ * @shipbench/board 0.4.0 sizes itself to the viewport: `min-h-screen` on its
+ * root, a `sticky top-0` header, and `100vh` in its canvas, kanban, and
+ * detail-sidebar calculations. With a tab bar above it, each of those is off
+ * by --radar-tabs-h. The board's classes are Tailwind utilities inside
+ * `@layer utilities`, and unlayered rules like these beat any layered rule,
+ * so these corrections win without specificity games.
+ *
+ * Tied to the board's internals: re-check on every board upgrade. The
+ * durable fix is upstream (DESIGN.md, "Pending upstream"). */
+
+.radar-board > .sb-canvas-grid {
+  min-height: calc(100vh - var(--radar-tabs-h));
+}
+
+.radar-board .sb-board-root > header {
+  top: var(--radar-tabs-h);
+}
+
+.radar-board .sb-board-root > main {
+  min-height: calc(100vh - var(--radar-tabs-h) - var(--sb-header-h));
+}
+
+.radar-board [class*="min-h-[calc(100vh-var(--sb-header-h)-2.5rem)]"] {
+  min-height: calc(100vh - var(--radar-tabs-h) - var(--sb-header-h) - 2.5rem);
+}
+
+@media (width >= 64rem) {
+  .radar-board aside[class*="lg:sticky"] {
+    top: calc(var(--radar-tabs-h) + var(--sb-header-h) + 1.25rem);
+    max-height: calc(100vh - var(--radar-tabs-h) - var(--sb-header-h) - 2.5rem);
+  }
+}
+
+/* ---- Notices ------------------------------------------------------------ */
+
 .radar-notice {
   max-width: 36rem;
   margin: 18vh auto 0;

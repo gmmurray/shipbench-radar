@@ -1,11 +1,8 @@
-import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { createRadarHandler } from './app.ts';
 import { registryPathIn, resolveConfigDir } from './configDir.ts';
-import { openProjects } from './projects.ts';
-import { loadRegistry, RegistryError } from './registry.ts';
+import { HOST, startRadar } from './radar.ts';
+import { loadRegistry, type Registry, RegistryError } from './registry.ts';
 
-const HOST = '127.0.0.1';
 const port = Number(process.env.RADAR_PORT ?? 4747);
 // `pnpm dev:server` passes --dev so the server accepts writes whose Origin is
 // the Vite dev server that proxies to it.
@@ -14,7 +11,7 @@ const webDir = fileURLToPath(new URL('../../dist/web', import.meta.url));
 
 const registryPath = registryPathIn(resolveConfigDir());
 
-let registry: Awaited<ReturnType<typeof loadRegistry>>;
+let registry: Registry;
 try {
   registry = await loadRegistry(registryPath);
 } catch (error) {
@@ -34,31 +31,33 @@ function warn(line: string): void {
   console.warn(`warning: ${line}`);
 }
 
-const handler = createRadarHandler({
-  projects: openProjects(registry),
-  port,
-  extraOrigins: dev ? ['http://127.0.0.1:5173', 'http://localhost:5173'] : [],
-  webDir,
-  registryPath,
-  warn,
-});
+try {
+  const radar = await startRadar({
+    registry,
+    registryPath,
+    port,
+    extraOrigins: dev ? ['http://127.0.0.1:5173', 'http://localhost:5173'] : [],
+    webDir,
+    warn,
+  });
 
-const server = createServer((req, res) => void handler(req, res));
+  const count = registry.projects.length;
+  console.log(`Radar listening on http://${HOST}:${radar.port}/`);
+  console.log(
+    `Registry: ${registryPath} (${count} project${count === 1 ? '' : 's'})`,
+  );
 
-server.on('error', error => {
+  const shutdown = () => {
+    void radar.close().then(() => process.exit(0));
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+} catch (error) {
   const inUse = (error as NodeJS.ErrnoException).code === 'EADDRINUSE';
   console.error(
     inUse
       ? `Port ${port} is already in use. Radar uses a fixed port so pinned tabs keep working; stop the other process or set RADAR_PORT.`
-      : `Radar could not listen on ${HOST}:${port}: ${error.message}`,
+      : `Radar could not start: ${error instanceof Error ? error.message : String(error)}`,
   );
   process.exit(1);
-});
-
-server.listen(port, HOST, () => {
-  const count = registry.projects.length;
-  console.log(`Radar listening on http://${HOST}:${port}/`);
-  console.log(
-    `Registry: ${registryPath} (${count} project${count === 1 ? '' : 's'})`,
-  );
-});
+}

@@ -1,22 +1,16 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
-import {
-  createServer,
-  type IncomingHttpHeaders,
-  request,
-  type Server,
-} from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { type IncomingHttpHeaders, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FsAdapter, initProject } from '@shipbench/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ProjectList } from '../shared/types.ts';
-import { createRadarHandler } from './app.ts';
-import { openProjects } from './projects.ts';
+import { type RunningRadar, startRadar } from './radar.ts';
 
 let root: string;
 let alphaPath: string;
-let server: Server;
+let betaPath: string;
+let radar: RunningRadar;
 let port: number;
 
 interface Reply {
@@ -69,11 +63,14 @@ async function taskFiles(): Promise<string[]> {
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'radar-app-'));
   alphaPath = join(root, 'alpha');
+  betaPath = join(root, 'beta');
   const bareRepoPath = join(root, 'bare');
   const webDir = join(root, 'web');
 
   await mkdir(alphaPath);
   await initProject(new FsAdapter(alphaPath), { name: 'Alpha' });
+  await mkdir(betaPath);
+  await initProject(new FsAdapter(betaPath), { name: 'Beta' });
   await mkdir(bareRepoPath);
   await mkdir(webDir);
   await writeFile(
@@ -81,32 +78,120 @@ beforeAll(async () => {
     '<!doctype html><title>t</title>',
   );
 
-  const projects = openProjects({
-    version: 1,
-    ui: {},
-    projects: [
-      { key: 'alpha', id: 'github.com/me/alpha', path: alphaPath },
-      { key: 'gone', id: 'github.com/me/gone', path: join(root, 'missing') },
-      { key: 'bare', id: 'github.com/me/bare', path: bareRepoPath },
-    ],
-  });
-
-  server = createServer();
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as AddressInfo).port;
-
-  const handler = createRadarHandler({
-    projects,
-    port,
-    webDir,
+  radar = await startRadar({
+    registry: {
+      version: 1,
+      ui: {},
+      projects: [
+        { key: 'alpha', id: 'github.com/me/alpha', path: alphaPath },
+        { key: 'beta', id: 'github.com/me/beta', path: betaPath },
+        { key: 'gone', id: 'github.com/me/gone', path: join(root, 'missing') },
+        { key: 'bare', id: 'github.com/me/bare', path: bareRepoPath },
+      ],
+    },
     registryPath: join(root, 'registry.json'),
+    port: 0,
+    webDir,
   });
-  server.on('request', (req, res) => void handler(req, res));
+  port = radar.port;
 });
 
 afterAll(async () => {
-  await new Promise(resolve => server.close(resolve));
+  await radar.close();
   await rm(root, { recursive: true, force: true });
+});
+
+/** Open the shared event stream and collect the project key of each event. */
+function openEventStream(): Promise<{ projects: string[]; close(): void }> {
+  return new Promise((resolve, reject) => {
+    const projects: string[] = [];
+    const req = request(
+      { host: '127.0.0.1', port, path: '/api/events' },
+      res => {
+        let buffer = '';
+        res.setEncoding('utf-8');
+        res.on('data', (chunk: string) => {
+          buffer += chunk;
+          const messages = buffer.split('\n\n');
+          buffer = messages.pop() ?? '';
+          for (const message of messages) {
+            const data = /^data: (.*)$/m.exec(message)?.[1];
+            if (data)
+              projects.push((JSON.parse(data) as { project: string }).project);
+          }
+        });
+        resolve({ projects, close: () => req.destroy() });
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5000) {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('timed out');
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
+
+const TASK_FILE = `---
+title: Written by an agent
+status: todo
+created: 2026-09-23T00:00:00.000Z
+updated: 2026-09-23T00:00:00.000Z
+---
+`;
+
+describe('event stream', () => {
+  it('reports an outside write to a project, tagged with its key', async () => {
+    const stream = await openEventStream();
+    try {
+      await writeFile(
+        join(betaPath, '.shipbench', 'tasks', 'agent-task.md'),
+        TASK_FILE,
+      );
+      await waitFor(() => stream.projects.includes('beta'));
+      expect(stream.projects).not.toContain('alpha');
+    } finally {
+      stream.close();
+    }
+  });
+
+  it('reports Radar-originated writes too, one stream for every client', async () => {
+    const first = await openEventStream();
+    const second = await openEventStream();
+    try {
+      await sendJsonBody('POST', '/api/projects/alpha/tasks', {
+        title: 'Seen by both streams',
+      });
+      await waitFor(
+        () =>
+          first.projects.includes('alpha') && second.projects.includes('alpha'),
+      );
+    } finally {
+      first.close();
+      second.close();
+    }
+  });
+
+  it('coalesces a burst of writes into one event', async () => {
+    const stream = await openEventStream();
+    try {
+      for (let i = 0; i < 5; i++) {
+        await writeFile(
+          join(betaPath, '.shipbench', 'tasks', `burst-${i}.md`),
+          TASK_FILE,
+        );
+      }
+      await waitFor(() => stream.projects.includes('beta'));
+      await new Promise(resolve => setTimeout(resolve, 400));
+      expect(stream.projects.filter(key => key === 'beta')).toHaveLength(1);
+    } finally {
+      stream.close();
+    }
+  });
 });
 
 describe('project list', () => {

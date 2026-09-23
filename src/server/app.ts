@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProjectList, ProjectSummary } from '../shared/types.ts';
+import type { EventHub } from './events.ts';
 import { coreErrorStatus, sendError, sendJson } from './http.ts';
 import { handleProjectApi } from './projectApi.ts';
 import { inspectProject, type Project } from './projects.ts';
@@ -8,6 +9,7 @@ import { serveStatic } from './static.ts';
 
 export interface RadarAppOptions {
   projects: Map<string, Project>;
+  events: EventHub;
   /** The port actually bound; the Host and Origin checks depend on it. */
   port: number;
   /** Extra allowed origins; in dev, Vite's. */
@@ -42,6 +44,11 @@ export function createRadarHandler(
     }
 
     const url = new URL(req.url ?? '/', 'http://localhost');
+
+    if (req.method === 'GET' && url.pathname === '/api/events') {
+      options.events.attach(req, res);
+      return;
+    }
 
     if (url.pathname === '/api/projects') {
       if (req.method !== 'GET') {

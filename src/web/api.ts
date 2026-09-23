@@ -1,5 +1,6 @@
 import type { BoardAPI, TaskFrontmatter } from '@shipbench/core';
 import type { ProjectList } from '../shared/types.ts';
+import { subscribeToProjectChanges } from './events.ts';
 
 // Mirrors the CLI's BoardAPI in ../shipbench/packages/board/src/standalone.tsx,
 // with two differences: every path is rooted at `/api/projects/:key`, and
@@ -75,9 +76,11 @@ export function createProjectApi(key: string): BoardAPI {
     unarchiveTask: (slug: string) =>
       request(`${task(slug)}/unarchive`, write('POST')),
     deleteTask: (slug: string) => request(task(slug), write('DELETE')),
-    // `onTasksChanged` arrives with the shared event stream in M2. Until then
-    // the board falls back to its own 60-second poll.
-    //
+    // The shared stream, filtered to this project.
+    onTasksChanged: (callback: () => void) =>
+      subscribeToProjectChanges(changed => {
+        if (changed === key) callback();
+      }),
     // `resolveRepoLink` is absent for the same reason the CLI omits it:
     // serving repo files would make Radar an arbitrary-file server.
   };

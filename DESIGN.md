@@ -1,6 +1,6 @@
 # Radar — design notes
 
-Status: M0 and M1 done 2026-09-23; see "v1 plan". Written 2026-09-21 against
+Status: M0–M2 done 2026-09-23; see "v1 plan". Written 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
 version-skew, and local-server sections.
@@ -386,27 +386,41 @@ pass on the empty project, and `pnpm dev` serves a blank page.
 
 ### M2 — Tabs and live updates
 
-- One watcher per available project, as in the CLI.
-- `GET /api/events`: one stream for all projects, each event carrying its
-  project key. The mounted board's `onTasksChanged` filters it to its own
-  project.
-- Tab bar: one tab per registry entry, in registry order. Switching tabs
-  unmounts the current board and mounts the next. The URL hash names the
-  active project (`#/shipbench`), so reloading or a pinned tab lands on the
-  same board. M1 already reads the hash; the tab bar sets it.
-- Layout: the board sizes itself to the viewport (`min-h-screen` on its root,
-  `100vh` in its canvas and detail-view calculations), so a tab bar stacked
-  above it makes the page scroll by the tab bar's height. Decide how to fit
-  the two, for example by overriding those heights from Radar's CSS. If only
-  an upstream change fixes it cleanly, file it.
-- Unread markers per "Interface". Unavailable projects get a tab that shows
-  why the project can't be loaded.
+Done 2026-09-23. As built:
+
+- One watcher per project whose directory exists at startup, reproducing
+  the CLI's. A project that is unavailable at startup gets no live updates
+  until Radar restarts (M3's registry reconciling is the natural place to
+  lift that).
+- `GET /api/events`: one stream for all projects. Each event is
+  `tasks-changed` with `{"project": "<key>"}`, and a comment heartbeat every
+  25 s keeps idle connections and Vite's proxy open. In the browser, one
+  `EventSource` is shared by the tab bar and the mounted board, whose
+  `onTasksChanged` filters it to its own key.
+- Tab bar: a sticky row of links, one per registry entry in registry order.
+  Each link's `href` is its hash (`#/shipbench`), so clicking, reloading, and
+  pinning all go through the one mechanism M1 built. The label is
+  `config.name`, falling back to the key. Unavailable projects are
+  struck through, with the reason in the tooltip and on the page.
+- Unread markers: a dot on any tab whose project changed while another was
+  on screen, cleared on viewing. Kept in memory, per "Interface". Any event
+  also re-reads the project list, as does the browser tab becoming visible
+  again, so names and availability stay current.
+- Layout: the board sizes itself to the viewport, so Radar corrects five of
+  its rules from `radar.css` by `--radar-tabs-h`: root `min-height`, header
+  `top`, canvas and kanban `min-height`, and the detail sidebar's `top` and
+  `max-height`. The board's rules sit in `@layer utilities` and Radar's are
+  unlayered, so Radar's win outright. These overrides depend on board 0.4.0's
+  class names, so re-check them on every board upgrade. The durable fix is
+  upstream (see "Pending upstream").
 - Theme: no `data-theme` on `<html>`, so the board follows the OS setting.
   A toggle can come later.
-- **Done when:** a `shipbench task move` in project B while you view A marks
-  B's tab, and B's board shows the change on switching; a change in the
-  viewed project appears live; and with seven or more projects registered,
-  board requests never stall waiting for a connection.
+- **Verified** in Chromium with nine projects registered. A real `shipbench
+  task move` in one project marked its tab while another was viewed. A CLI
+  write to the viewed project appeared in about 300 ms, with no poll
+  involved. Seven tab switches in a row each loaded in about 110 ms over
+  one event stream. A short board didn't scroll the page, and on a long one
+  the tab bar and board header stayed pinned. Both themes were checked.
 
 ### M3 — Registration
 
@@ -465,7 +479,7 @@ toggle. An in-app registry editor. Starting at login.
 
 ## Pending upstream
 
-Filed in ShipBench 2026-09-23. Neither blocks building Radar.
+Filed in ShipBench 2026-09-23. None of these blocks building Radar.
 
 - **Board key handlers ignore hidden boards** (needs an `@shipbench/board`
   release). Until it ships, Radar unmounts inactive boards. Once it does,
@@ -474,6 +488,16 @@ Filed in ShipBench 2026-09-23. Neither blocks building Radar.
 - **CLI board server `Host`/`Origin` checks.** Radar doesn't use the CLI
   server, so nothing changes here. Radar's own server has these checks from
   the start (see "The local server").
+- **Let hosts size the board** (found in M2; needs an `@shipbench/board`
+  release). The board assumes it owns the viewport:
+  `min-h-screen` on its root, a `top-0` sticky header, and `100vh` in five
+  height calculations. A host with its own chrome above the board (Radar's
+  tab bar, or a Harbor page header) has to override each one. A small fix:
+  read two variables with today's values as fallbacks, e.g.
+  `var(--sb-viewport-h, 100vh)` in place of `100vh` and
+  `var(--sb-top-offset, 0px)` for the sticky offsets. A host would then set
+  two custom properties and delete its overrides. Until then, Radar
+  overrides the rules itself (see M2).
 
 ## Open questions
 

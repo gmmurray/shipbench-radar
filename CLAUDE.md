@@ -27,6 +27,11 @@ Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before calling work done.
 
 To try Radar without touching your real registry, point `RADAR_HOME` at a
 scratch directory holding a `registry.json`, and `RADAR_PORT` at a spare port.
+The user often has their own `pnpm dev` running on 4747 and 5173, against
+the real registry. For agent-run checks, use other ports: a spare
+`RADAR_PORT`, and `vite --port <n>` in place of `pnpm dev`. Stop only the
+processes you started, and find them by port. Don't use `timeout pnpm dev`
+from Git Bash, which can leave the Node children running on Windows.
 
 [registry.example.json](registry.example.json) is the maintained sample
 registry, the equivalent of an `.env.example` file. When the registry format
@@ -75,7 +80,13 @@ record it under "Pending upstream" in DESIGN.md if Radar depends on it.
 - Mount only the active project's board, until the upstream key-handler fix
   ships (DESIGN.md, "Mounting").
 - One multiplexed SSE stream for all projects, never one per project, because
-  of the browser's six-connection-per-origin limit.
+  of the browser's six-connection-per-origin limit. The browser side shares
+  one `EventSource` (`src/web/events.ts`).
+- `src/web/radar.css` overrides five of the board's viewport-sized rules so
+  it fits under the tab bar. They depend on `@shipbench/board`'s class
+  names: when bumping the board, re-check them in a browser (short board
+  with no page scroll, long board with pinned tab bar and header, detail
+  sidebar).
 - The server binds `127.0.0.1` on a fixed port and rejects requests with a bad
   `Host`/`Origin` or a non-JSON write (DESIGN.md, "The local server").
 - Registry entries are declarations; derived data goes in a separate,
