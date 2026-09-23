@@ -13,9 +13,9 @@ apart silently.
 ## Commands
 
 ```sh
-pnpm dev          # server (node --watch) + Vite on http://127.0.0.1:5173
+pnpm dev          # server (node --watch, --dev) + Vite on http://127.0.0.1:5173
 pnpm build        # Vite build of the web app to dist/web
-pnpm start        # server on http://127.0.0.1:4747 (serves dist/web from M1)
+pnpm start        # build, then serve everything on http://127.0.0.1:4747
 pnpm radar <cmd>  # registry CLI (M3)
 pnpm typecheck    # server/CLI config, then src/web/tsconfig.json
 pnpm lint         # Biome
@@ -25,12 +25,17 @@ pnpm test         # Vitest
 
 Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before calling work done.
 
+To try Radar without touching your real registry, point `RADAR_HOME` at a
+scratch directory holding a `registry.json`, and `RADAR_PORT` at a spare port.
+
 ## Layout
 
 - `src/server/` — the HTTP server. Node runs these `.ts` files directly
   (type stripping), with no build step: only erasable syntax (no enums, no
   parameter properties), and relative imports keep their `.ts` extension.
 - `src/cli/` — the `pnpm radar` registry command. Same rules as the server.
+- `src/shared/` — type-only declarations used by both the server and the web
+  app (e.g. the `/api/projects` response). No runtime imports.
 - `src/web/` — the React app, bundled by Vite, with its own
   `tsconfig.json`. Import only types from the `@shipbench/core` barrel here.
   Its adapters import `node:fs` and break the browser build, and Biome

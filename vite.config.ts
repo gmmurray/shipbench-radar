@@ -12,11 +12,18 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': `http://127.0.0.1:${serverPort}`,
+      // changeOrigin rewrites Host to the server's own, which its Host check
+      // requires. Origin stays Vite's; the server allows it only under --dev.
+      '/api': {
+        target: `http://127.0.0.1:${serverPort}`,
+        changeOrigin: true,
+      },
     },
   },
   build: {
     outDir: fileURLToPath(new URL('./dist/web', import.meta.url)),
     emptyOutDir: true,
+    // Served from localhost to one browser; bundle size is not a concern.
+    chunkSizeWarningLimit: 2000,
   },
 });

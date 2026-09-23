@@ -1,6 +1,6 @@
 # Radar — design notes
 
-Status: M0 (skeleton) done 2026-09-23; see "v1 plan". Written 2026-09-21 against
+Status: M0 and M1 done 2026-09-23; see "v1 plan". Written 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
 version-skew, and local-server sections.
@@ -126,7 +126,13 @@ board, or the host owns the shell. Radar owns the shell.
 ## Mounting: one board at a time
 
 **Decision: only the active tab's board is mounted. Switching tabs unmounts
-the old board (`root.unmount()`) and mounts the new one.**
+the old board and mounts the new one.**
+
+Radar is a React app itself, so it renders the package's exported `Board`
+component with `key={projectKey}` rather than calling `createBoard`, which
+would create a second React root. Changing the key is the unmount. `Board`
+takes the same `api` / `themeControl` / `documentTitle` props that
+`createBoard` forwards to it.
 
 Keeping every board mounted and hiding the inactive ones does not work with
 the board as published. Two components attach `keydown` listeners to `window`
@@ -357,9 +363,13 @@ pass on the empty project, and `pnpm dev` serves a blank page.
   `key` is Radar's short local handle, used in URLs. `id` is the portable
   identity and `path` the machine-local location, as in "The project
   registry". `ui` holds interface preferences, kept beside the entries rather
-  than inside them. An unparseable or invalid registry fails startup with a
-  message naming the problem. An entry whose path is missing or has no
-  `.shipbench/config.json` loads as *unavailable* instead of being dropped.
+  than inside them. A missing registry file is an empty registry, since the
+  first run has nothing registered. An unparseable or invalid registry fails
+  startup with a message naming every problem. An entry whose path is missing
+  or isn't an initialized ShipBench project loads as *unavailable* instead of
+  being dropped. Availability is checked per request with core's
+  `inspectProjectInitialization`, so a repository that comes back becomes
+  available without a restart.
 - **Server:** listens on `127.0.0.1:4747` (`RADAR_PORT` overrides). A fixed
   port, unlike the CLI's count-upward search: a pinned tab depends on the URL
   staying the same, so a port already in use fails startup loudly.
@@ -369,9 +379,14 @@ pass on the empty project, and `pnpm dev` serves a blank page.
     through that project's `FsAdapter`.
   - Every other path serves the built web app.
   - The request checks from "The local server". The allowed `Origin` values
-    are the server's own origin plus, in dev only, Vite's.
-- **Web:** fetches the project list and mounts the board for the first
-  available project, using a `BoardAPI` whose paths carry the project key.
+    are the server's own origin plus, under `--dev` (which `pnpm dev`
+    passes), Vite's. Vite's proxy rewrites `Host`, so the Host check holds
+    in dev too. Radar's `BoardAPI` sends `application/json` on every write,
+    bodiless ones included.
+- **Web:** fetches the project list and mounts the board for the project
+  named in the URL hash, else the first available one, using a `BoardAPI`
+  whose paths carry the project key. Unavailable and unknown projects render
+  a notice with the reason.
 - **Done when:** a board action in Radar changes the repository's files
   exactly as `shipbench board` would. Tests cover each request-check
   rejection. An unavailable project shows an error state, not a crash.
@@ -385,7 +400,12 @@ pass on the empty project, and `pnpm dev` serves a blank page.
 - Tab bar: one tab per registry entry, in registry order. Switching tabs
   unmounts the current board and mounts the next. The URL hash names the
   active project (`#/shipbench`), so reloading or a pinned tab lands on the
-  same board.
+  same board. M1 already reads the hash; the tab bar sets it.
+- Layout: the board sizes itself to the viewport (`min-h-screen` on its root,
+  `100vh` in its canvas and detail-view calculations), so a tab bar stacked
+  above it makes the page scroll by the tab bar's height. Decide how to fit
+  the two, for example by overriding those heights from Radar's CSS. If only
+  an upstream change fixes it cleanly, file it.
 - Unread markers per "Interface". Unavailable projects get a tab that shows
   why the project can't be loaded.
 - Theme: no `data-theme` on `<html>`, so the board follows the OS setting.

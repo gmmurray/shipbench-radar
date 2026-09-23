@@ -5,10 +5,10 @@
   "description": "Several ShipBench boards in one window, one tab per repository. Personal tool; not published.",
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm dev:server\" \"pnpm dev:web\"",
-    "dev:server": "node --watch src/server/main.ts",
+    "dev:server": "node --watch src/server/main.ts --dev",
     "dev:web": "vite",
     "build": "vite build",
-    "start": "node src/server/main.ts",
+    "start": "vite build && node src/server/main.ts",
     "radar": "node src/cli/radar.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "lint": "biome lint .",
