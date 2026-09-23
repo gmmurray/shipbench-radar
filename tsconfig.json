@@ -1,0 +1,24 @@
+{
+  // Server, CLI, and tool configs. Node runs these .ts files directly via type
+  // stripping, so only erasable syntax is allowed and relative imports carry
+  // their .ts extension. The browser app has its own src/web/tsconfig.json.
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2024"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/server", "src/cli", "*.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

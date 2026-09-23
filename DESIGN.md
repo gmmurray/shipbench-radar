@@ -1,7 +1,9 @@
 # Radar — design notes
 
-Status: pre-implementation. Nothing is built. Written 2026-09-21 against
-ShipBench `core` / `board` / `cli` at 0.4.0.
+Status: M0 (skeleton) done 2026-09-23; see "v1 plan". Written 2026-09-21 against
+ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
+the board, core, and CLI source for the questions in the mounting, event,
+version-skew, and local-server sections.
 
 The name is a placeholder. It sits next to `shipbench-harbor` in
 `Q:/code/personal/`, which is why the directory carries the `shipbench-`
@@ -54,7 +56,8 @@ component.** No per-project servers, no per-project ports, no child processes.
 
 Roughly:
 
-- One HTTP server. Routes shaped `/api/:projectId/...`.
+- One HTTP server. Project routes shaped `/api/projects/:key/...`, so
+  app-wide routes like `/api/events` can never collide with a project key.
 - Per registered project, `new FsAdapter(absolutePathToRepo)`.
 - The API layer delegates to `@shipbench/core` — `loadConfig`, `listTasks`,
   `listArchivedTasks`, `createTask`, `updateTask`, `reorderTask`, `addComment`,
@@ -62,14 +65,21 @@ Roughly:
   It is transcribable almost directly from
   `../shipbench/apps/cli/src/boardServer.ts` (see the request handler at
   roughly lines 236-400). Nothing is invented; it is delegation.
-- Frontend mounts `createBoard(el, { api })` from `@shipbench/board` per
-  project, with a `BoardAPI` whose fetches carry the project id.
+- Frontend mounts `createBoard(el, { api })` from `@shipbench/board` for the
+  active project only (see "Mounting: one board at a time"), with a `BoardAPI`
+  whose fetches carry the project id.
 - One chokidar watcher per project, following the pattern in
   `../shipbench/apps/cli/src/tui/watch.ts` — the tasks directory plus
   `config.json` and `layout.json`, filtered to `.md` and those two files,
   150 ms debounce. That module is not exported from the CLI package; it is
   about thirty lines to reproduce.
-- Server-sent events per project, so the tab bar knows which project changed.
+- **One** server-sent event stream for the whole app, each event carrying its
+  project id. Not one stream per project: browsers cap HTTP/1.1 at six
+  connections per origin, and each open `EventSource` holds one for good. Six
+  registered projects with a stream each would leave no connection for the
+  board's own fetches, and the page would hang. The tab bar reads every
+  event; the mounted board's `onTasksChanged` filters the same stream to its
+  own project id.
 
 **Rejected alternative: a launcher that spawns `shipbench board` per project
 and shows each in an iframe tab.** It works — the board server sets no
@@ -97,13 +107,70 @@ Verified against the ShipBench repository at 0.4.0:
 - `@shipbench/core` publishes `FsAdapter` and every function the board API
   calls, plus the `BoardAPI` type the board expects.
 - The board's library entry deliberately does not import fonts — hosts load
-  their own. IBM Plex Sans and Intel One Mono are needed. React 19 is a peer
-  dependency.
+  their own. IBM Plex Sans and Intel One Mono are needed. React 19 and
+  React DOM 19 are peer dependencies.
+- Live updates go through the host. The board subscribes via the optional
+  `BoardAPI.onTasksChanged(callback) => unsubscribe`; it opens no
+  `EventSource` of its own. With the method absent it falls back to a
+  60-second poll. Radar implements the method.
+- Board state is per instance. Each `createBoard` builds its own zustand store
+  inside `BoardStoreProvider`, so two boards never share selection or data.
 
 One constraint that rules out a cheaper design: the shipped standalone bundle
-hardcodes root-absolute `/api/...` paths. The published board app therefore
-cannot be multiplexed under path prefixes such as `/board/foo/`. It is one
-origin per board, or the host owns the shell. Radar owns the shell.
+hardcodes root-absolute `/api/...` paths. The hardcoding lives only in
+`packages/board/src/standalone.tsx`, which is the CLI's `BoardAPI`; the library
+entry is path-agnostic. The published board *app* therefore cannot be
+multiplexed under path prefixes such as `/board/foo/`. It is one origin per
+board, or the host owns the shell. Radar owns the shell.
+
+## Mounting: one board at a time
+
+**Decision: only the active tab's board is mounted. Switching tabs unmounts
+the old board (`root.unmount()`) and mounts the new one.**
+
+Keeping every board mounted and hiding the inactive ones does not work with
+the board as published. Two components attach `keydown` listeners to `window`
+rather than to their own subtree:
+
+- `BoardCanvas` — Escape closes the archive view or deselects the task.
+- `DetailView` — `j`/`k`/ArrowUp/ArrowDown step through the column, with
+  `preventDefault`.
+
+A hidden board would still receive every keystroke. Escape on the visible
+board would also close the detail views of the hidden ones, and a hidden board
+with a task open would take over the arrow keys.
+
+Unmounting costs one `getConfig` + `listTasks` round trip to a local server
+per switch, which is milliseconds. It also loses the in-board view state (open
+task, archive view) on switch. That is accepted for now. Nothing lets a host
+set the selected task, so Radar could not restore it anyway.
+
+Consequences of mounting one board at a time:
+
+- `documentTitle: true` is safe. Only one board sets the title, and its
+  unmount cleanup restores the previous title.
+- `themeControl` stays off. The toggle writes `data-theme` on `<html>` and
+  `sb-theme` in `localStorage`, both page-global. Radar owns the theme and
+  sets `data-theme` on `<html>` itself; the board's CSS reads it from there,
+  as it does under Harbor.
+- Radar's own writes can only touch the active project, so they never mark a
+  tab changed. The unread indicator reflects outside writes (agents, the CLI,
+  an editor) without needing to tell writers apart.
+
+If keeping boards alive turns out to matter, the fix belongs upstream, and it
+is not to move the listeners onto the board's root element. Key events only
+reach an element that holds focus, so the standalone board would ignore
+Escape and `j`/`k` whenever focus sits on `<body>`, for example after a fresh
+load. The fix is a visibility gate: keep listening on `window`, but have each
+handler return early when its own root is not rendered
+(`root.getClientRects().length === 0`, true under `display: none`), ideally
+through one shared `useBoardKeydown` hook. That needs no API change, leaves
+standalone and Harbor unchanged, and lets a host keep hidden boards mounted
+just by hiding them. The rest of the board already tolerates several
+instances: `--sb-header-h` is set on each board's own root, and a hidden
+board's toaster renders inside a hidden tree. With that fix upstream, Radar
+would switch to keeping boards mounted, which makes switching instant and
+keeps each tab's open task.
 
 ## Writes go straight to each repository
 
@@ -130,6 +197,48 @@ to use it is to leave every board open beside agents working in those repos.
 Not a blocker, and not a reason to make Radar read-only. It is a known cost of
 having many boards live at once, recorded here so it is not rediscovered as a
 bug.
+
+**Decision: Radar does not detect or refuse a concurrent `shipbench board`
+server.** The CLI writes no lockfile or pidfile, and it picks the first free
+port from its preferred one, so there is nothing reliable to detect. A second
+writer on the same repository is the same last-write-wins exposure as an
+agent, and is accepted on the same terms.
+
+### Version skew
+
+Radar pins one `@shipbench/core`. Each repository is also written by whatever
+`shipbench` version its agents run. Reading core at 0.4.0, the failure mode is
+mild:
+
+- Unknown task frontmatter fields are preserved on write (updates spread the
+  existing frontmatter) and reported as "Unknown frontmatter field …
+  (preserved)" warnings.
+- `config.json` is round-tripped as raw JSON when core touches it, so unknown
+  config keys survive.
+
+The real risk is semantic, not destructive: an older core ignores the meaning
+of a newer field, or applies an older layout rule. Keep Radar's core at or
+ahead of the newest CLI in use, and bump it whenever the CLI is bumped.
+
+## The local server
+
+One process now has write access to every registered repository, where a
+`shipbench board` server could reach only one. That raises the stakes of a
+gap the CLI server already has. It binds `127.0.0.1`, but it accepts a request
+body as JSON whatever its `content-type`, and it checks neither `Host` nor
+`Origin`. Any web page open in the browser can therefore send a no-preflight
+`text/plain` POST to a localhost port and create or archive a task. A DNS
+rebinding attack could also read the board.
+
+Radar closes that gap in its own server rather than copying it:
+
+- Bind `127.0.0.1` only.
+- Reject any request whose `Host` is not `127.0.0.1:<port>` or
+  `localhost:<port>` (defeats DNS rebinding).
+- Reject any non-GET request whose `content-type` is not `application/json`.
+  That forces a CORS preflight, and Radar never answers one, so no
+  cross-origin page can write.
+- Reject any request with an `Origin` header that is not Radar's own.
 
 ## The project registry
 
@@ -175,13 +284,139 @@ must not be argued for as one.
 Tabs, not a wall of boards. Several boards visible at once is not the goal;
 moving between them quickly is.
 
-The tab bar listens to every project's event stream and marks the ones that
+The tab bar listens to the shared event stream and marks the projects that
 changed while attention was elsewhere. With agents working in several repos,
 that indicator is likely the most useful thing Radar does, and it is close to
-free — the per-project SSE stream already reports which project changed.
+free — every event on the shared stream already names the project that
+changed.
+
+Unread markers are in-memory for now: a restart clears them. If they need to
+survive restarts, the last-seen state is derived data and goes in the cache
+file, never in the registry.
 
 Electron is not required. A local page in a pinned browser tab is the same
 experience with none of the packaging.
+
+## Stack
+
+Decided 2026-09-23. Chosen to match ShipBench's tooling, so habits and config
+carry over.
+
+- **Runtime:** Node 24, ESM, TypeScript. Node runs the server's `.ts` files
+  directly through its built-in type stripping, with no build step for the
+  server. The server tsconfig sets `erasableSyntaxOnly` so no syntax that
+  stripping can't handle (enums, parameter properties) creeps in, and
+  relative imports use `.ts` extensions.
+- **Server:** `node:http` with no framework. The code mirrored from
+  `boardServer.ts` is already written against it, and the route count is
+  small.
+- **Watching:** chokidar, as in the CLI.
+- **Frontend:** React 19 and Vite. React is required by the board anyway, so
+  the tab bar is React too. In dev, Vite serves the page and forwards `/api`
+  to the server. In normal use, the server serves Vite's build output.
+- **Styling:** plain CSS on the board's `--sb-*` tokens. The published
+  `@shipbench/board/styles.css` is compiled Tailwind, so Radar needs no
+  Tailwind. That file includes Tailwind's page-wide reset, which the tab bar
+  inherits.
+- **Fonts:** `@fontsource/ibm-plex-sans` and `@fontsource/intel-one-mono`,
+  loaded by Radar because the board's library entry doesn't load them.
+- **Tooling:** pnpm, Biome, Vitest. One package, not a monorepo:
+  `src/server/`, `src/web/`, `src/cli/`.
+
+## v1 plan
+
+Milestones in build order. Each is done when its acceptance items hold.
+
+### M0 — Skeleton
+
+Tooling only: package manifest, tsconfigs, Biome, Vitest, Vite config, empty
+entry points. **Done when** `pnpm typecheck`, `pnpm lint`, and `pnpm test`
+pass on the empty project, and `pnpm dev` serves a blank page.
+
+### M1 — One board, served safely
+
+- **Config directory:** `%APPDATA%\radar` on Windows, `$XDG_CONFIG_HOME/radar`
+  (falling back to `~/.config/radar`) elsewhere. The `RADAR_HOME` environment
+  variable overrides it, which tests use.
+- **Registry:** `<config dir>/registry.json`, edited by hand until M3:
+
+  ```json
+  {
+    "version": 1,
+    "projects": [
+      {
+        "key": "shipbench",
+        "id": "github.com/gmmurray/shipbench",
+        "path": "Q:\\code\\personal\\shipbench"
+      }
+    ],
+    "ui": {}
+  }
+  ```
+
+  `key` is Radar's short local handle, used in URLs. `id` is the portable
+  identity and `path` the machine-local location, as in "The project
+  registry". `ui` holds interface preferences, kept beside the entries rather
+  than inside them. An unparseable or invalid registry fails startup with a
+  message naming the problem. An entry whose path is missing or has no
+  `.shipbench/config.json` loads as *unavailable* instead of being dropped.
+- **Server:** listens on `127.0.0.1:4747` (`RADAR_PORT` overrides). A fixed
+  port, unlike the CLI's count-upward search: a pinned tab depends on the URL
+  staying the same, so a port already in use fails startup loudly.
+  - `GET /api/projects` — each entry's key, id, name (from `config.name`), and
+    whether it is available.
+  - `/api/projects/:key/...` — the CLI's board API routes, delegating to core
+    through that project's `FsAdapter`.
+  - Every other path serves the built web app.
+  - The request checks from "The local server". The allowed `Origin` values
+    are the server's own origin plus, in dev only, Vite's.
+- **Web:** fetches the project list and mounts the board for the first
+  available project, using a `BoardAPI` whose paths carry the project key.
+- **Done when:** a board action in Radar changes the repository's files
+  exactly as `shipbench board` would. Tests cover each request-check
+  rejection. An unavailable project shows an error state, not a crash.
+
+### M2 — Tabs and live updates
+
+- One watcher per available project, as in the CLI.
+- `GET /api/events`: one stream for all projects, each event carrying its
+  project key. The mounted board's `onTasksChanged` filters it to its own
+  project.
+- Tab bar: one tab per registry entry, in registry order. Switching tabs
+  unmounts the current board and mounts the next. The URL hash names the
+  active project (`#/shipbench`), so reloading or a pinned tab lands on the
+  same board.
+- Unread markers per "Interface". Unavailable projects get a tab that shows
+  why the project can't be loaded.
+- Theme: no `data-theme` on `<html>`, so the board follows the OS setting.
+  A toggle can come later.
+- **Done when:** a `shipbench task move` in project B while you view A marks
+  B's tab, and B's board shows the change on switching; a change in the
+  viewed project appears live; and with seven or more projects registered,
+  board requests never stall waiting for a connection.
+
+### M3 — Registration
+
+A small command, run as `pnpm radar <command>`:
+
+- `add <path> [--key <key>] [--id <id>]`. The path must contain
+  `.shipbench/config.json`. The identity comes from the `origin` remote via
+  core's `parseGithubRemoteUrl`, normalized to `github.com/<owner>/<repo>` in
+  lowercase. A repository with no GitHub `origin` requires `--id`. The key
+  defaults to the repository name. A duplicate key or identity is rejected.
+- `list` shows each entry and whether its path is still available.
+- `remove <key>`.
+
+The server watches `registry.json` and reconciles adapters and watchers
+without a restart.
+
+**Done when:** adding, listing, and removing projects needs no hand-editing,
+and a running Radar picks up each change on its own.
+
+### After v1
+
+Keep boards mounted once the upstream key-handler fix is released. A theme
+toggle. An in-app registry editor. Starting at login.
 
 ## Non-goals
 
@@ -208,19 +443,39 @@ experience with none of the packaging.
 2. **Evidence for a library export.** If one process hosting many adapters
    holds up, that is an argument for the CLI exposing its board handler as an
    importable module rather than bin-only. Evidence first.
-3. **Nothing about the interface.** Tab design, layout, and personal tuning
+3. **Small upstream fixes found along the way.** Building Radar keeps
+   turning up small ShipBench bugs and improvements. File them in ShipBench
+   through its normal process as they come up, and track any that affect
+   Radar under "Pending upstream".
+4. **Nothing about the interface.** Tab design, layout, and personal tuning
    stay here. That is the point of building it privately.
+
+## Pending upstream
+
+Filed in ShipBench 2026-09-23. Neither blocks building Radar.
+
+- **Board key handlers ignore hidden boards** (needs an `@shipbench/board`
+  release). Until it ships, Radar unmounts inactive boards. Once it does,
+  switch to keeping every board mounted and hiding inactive ones (see
+  "Mounting").
+- **CLI board server `Host`/`Origin` checks.** Radar doesn't use the CLI
+  server, so nothing changes here. Radar's own server has these checks from
+  the start (see "The local server").
 
 ## Open questions
 
-- Where Radar's config directory goes on Windows, and whether it should ever
-  be synced between machines given that paths are machine-local.
+v1 answers each of these with a simple, provisional behavior (see "v1 plan").
+The questions stay open because real use, not reasoning, should settle them.
+
+- Whether the config directory should ever be synced between machines, given
+  that paths are machine-local. *v1: it lives in `%APPDATA%\radar` and is not
+  synced.*
 - Whether a project can be registered by path alone before its identity is
-  known, and what the entry looks like in the interval.
+  known, and what the entry looks like in the interval. *v1: no. `add`
+  requires an identity, from the remote or from `--id`.*
 - What happens to a tab whose repository has moved or been deleted: how
   loudly, and whether the entry survives so it can be repaired rather than
-  silently dropped.
+  silently dropped. *v1: the entry survives, and its tab shows it as
+  unavailable and why.*
 - Whether two worktrees of the same repository are one project or two.
-- Whether Radar should refuse to write to a repository that already has a
-  `shipbench board` server running against it, or simply accept the
-  last-write-wins exposure.
+  *v1: one. A second entry with the same identity is rejected.*
