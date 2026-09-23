@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "key": "shipbench",
+      "id": "github.com/gmmurray/shipbench",
+      "path": "Q:\\code\\personal\\shipbench"
+    },
+    {
+      "key": "scratch",
+      "id": "local/scratch",
+      "path": "Q:\\code\\personal\\scratch"
+    }
+  ],
+  "ui": {}
+}

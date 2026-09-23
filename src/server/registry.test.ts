@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadRegistry, parseRegistry, RegistryError } from './registry.ts';
 
@@ -70,6 +71,17 @@ describe('parseRegistry', () => {
     expect(problemsOf(JSON.stringify({ version: 1 }))).toContain(
       '"projects" must be an array',
     );
+  });
+});
+
+describe('registry.example.json', () => {
+  // The example is the documented format; keep it loadable.
+  it('is a valid registry', async () => {
+    const file = fileURLToPath(
+      new URL('../../registry.example.json', import.meta.url),
+    );
+    const registry = await loadRegistry(file);
+    expect(registry.projects.length).toBeGreaterThan(0);
   });
 });
 

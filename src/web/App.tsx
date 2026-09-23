@@ -64,8 +64,8 @@ export function App() {
   if (list.projects.length === 0) {
     return (
       <Notice title="No projects registered">
-        Add entries to <code>{list.registryPath}</code> and restart Radar. The
-        format is in DESIGN.md, under “v1 plan”.
+        Add entries to <code>{list.registryPath}</code> and restart Radar. Copy{' '}
+        <code>registry.example.json</code> from the Radar repository to start.
       </Notice>
     );
   }

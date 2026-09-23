@@ -28,6 +28,11 @@ Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before calling work done.
 To try Radar without touching your real registry, point `RADAR_HOME` at a
 scratch directory holding a `registry.json`, and `RADAR_PORT` at a spare port.
 
+[registry.example.json](registry.example.json) is the maintained sample
+registry, the equivalent of an `.env.example` file. When the registry format
+changes, update it in the same change. `registry.test.ts` loads it through
+the real parser.
+
 ## Layout
 
 - `src/server/` — the HTTP server. Node runs these `.ts` files directly

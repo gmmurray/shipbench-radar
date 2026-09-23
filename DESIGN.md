@@ -344,26 +344,19 @@ pass on the empty project, and `pnpm dev` serves a blank page.
 - **Config directory:** `%APPDATA%\radar` on Windows, `$XDG_CONFIG_HOME/radar`
   (falling back to `~/.config/radar`) elsewhere. The `RADAR_HOME` environment
   variable overrides it, which tests use.
-- **Registry:** `<config dir>/registry.json`, edited by hand until M3:
+- **Registry:** `<config dir>/registry.json`, edited by hand until M3.
+  [`registry.example.json`](registry.example.json) at the repository root
+  is the maintained sample: copy it to start, and update it whenever the
+  format changes. A test loads it through the real parser, so it can't
+  silently go stale.
 
-  ```json
-  {
-    "version": 1,
-    "projects": [
-      {
-        "key": "shipbench",
-        "id": "github.com/gmmurray/shipbench",
-        "path": "Q:\\code\\personal\\shipbench"
-      }
-    ],
-    "ui": {}
-  }
-  ```
-
-  `key` is Radar's short local handle, used in URLs. `id` is the portable
-  identity and `path` the machine-local location, as in "The project
-  registry". `ui` holds interface preferences, kept beside the entries rather
-  than inside them. A missing registry file is an empty registry, since the
+  `key` is Radar's short local handle, used in URLs: lowercase letters,
+  digits, and hyphens, unique. `id` is the portable identity, unique: a
+  normalized GitHub remote (`github.com/<owner>/<repo>`), or any declared
+  fallback such as `local/<name>` for a repository with no remote. `path` is
+  the machine-local location, absolute. Identity and location are kept
+  separate as described in "The project registry". `ui` holds interface
+  preferences, kept beside the entries rather than inside them. A missing registry file is an empty registry, since the
   first run has nothing registered. An unparseable or invalid registry fails
   startup with a message naming every problem. An entry whose path is missing
   or isn't an initialized ShipBench project loads as *unavailable* instead of
