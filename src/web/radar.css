@@ -152,6 +152,28 @@
   }
 }
 
+/* ---- Registry problem banner --------------------------------------------
+ * Rare and meant to be seen, so it sits in normal flow under the tab bar and
+ * accepts that the board below scrolls a little further while it's there. */
+
+.radar-problem {
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--sb-warning);
+  border-left: 3px solid var(--sb-warning);
+  background: var(--sb-surface2);
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 13px;
+  color: var(--sb-frosted);
+}
+
+.radar-problem pre {
+  margin-top: 0.5rem;
+  font-family: "Intel One Mono", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: var(--sb-silver);
+}
+
 /* ---- Notices ------------------------------------------------------------ */
 
 .radar-notice {

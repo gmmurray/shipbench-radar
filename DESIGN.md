@@ -1,6 +1,6 @@
 # Radar — design notes
 
-Status: M0–M2 done 2026-09-23; see "v1 plan". Written 2026-09-21 against
+Status: v1 (M0–M3) done 2026-09-23; see "v1 plan". Written 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
 version-skew, and local-server sections.
@@ -344,7 +344,8 @@ pass on the empty project, and `pnpm dev` serves a blank page.
 - **Config directory:** `%APPDATA%\radar` on Windows, `$XDG_CONFIG_HOME/radar`
   (falling back to `~/.config/radar`) elsewhere. The `RADAR_HOME` environment
   variable overrides it, which tests use.
-- **Registry:** `<config dir>/registry.json`, edited by hand until M3.
+- **Registry:** `<config dir>/registry.json`. It was edited by hand until M3;
+  now it's managed with `pnpm radar`, and hand edits still work.
   [`registry.example.json`](registry.example.json) at the repository root
   is the maintained sample: copy it to start, and update it whenever the
   format changes. A test loads it through the real parser, so it can't
@@ -388,10 +389,9 @@ pass on the empty project, and `pnpm dev` serves a blank page.
 
 Done 2026-09-23. As built:
 
-- One watcher per project whose directory exists at startup, reproducing
-  the CLI's. A project that is unavailable at startup gets no live updates
-  until Radar restarts (M3's registry reconciling is the natural place to
-  lift that).
+- One watcher per project whose directory exists, reproducing the CLI's. A
+  project whose directory is missing gets no watcher. Since M3, every
+  registry change retries the missing ones.
 - `GET /api/events`: one stream for all projects. Each event is
   `tasks-changed` with `{"project": "<key>"}`, and a comment heartbeat every
   25 s keeps idle connections and Vite's proxy open. In the browser, one
@@ -424,26 +424,68 @@ Done 2026-09-23. As built:
 
 ### M3 — Registration
 
-A small command, run as `pnpm radar <command>`:
+Done 2026-09-23. As built:
 
-- `add <path> [--key <key>] [--id <id>]`. The path must contain
-  `.shipbench/config.json`. The identity comes from the `origin` remote via
-  core's `parseGithubRemoteUrl`, normalized to `github.com/<owner>/<repo>` in
-  lowercase. A repository with no GitHub `origin` requires `--id`. The key
-  defaults to the repository name. A duplicate key or identity is rejected.
-- `list` shows each entry and whether its path is still available.
-- `remove <key>`.
-
-The server watches `registry.json` and reconciles adapters and watchers
-without a restart.
-
-**Done when:** adding, listing, and removing projects needs no hand-editing,
-and a running Radar picks up each change on its own.
+- `pnpm radar add <path> [--key <key>] [--id <id>]`:
+  - **Path.** Must be an initialized ShipBench project, checked with the
+    same `inspectProjectInitialization` the server uses. A relative path
+    resolves against the directory `pnpm` was run from (`INIT_CWD`), not
+    the package directory.
+  - **Identity.** Comes from the `origin` remote through core's
+    `parseGithubRemoteUrl`, as `github.com/<owner>/<repo>` in lowercase, so
+    HTTPS, SCP-style, and `ssh://` remotes of one repository match. `--id`
+    overrides it, and is required when there's no GitHub `origin`; the
+    error suggests `local/<dir>`.
+  - **Key.** Defaults to the repository name, or else the directory name,
+    lowercased with other characters collapsed to hyphens.
+  - **Rejected, each with its own message:** a duplicate key (suggests
+    `--key`), a duplicate identity (the v1 worktree rule), and a path
+    already registered under another identity (compared case-insensitively
+    on Windows).
+- `pnpm radar list` shows each entry with `ok` or `missing` and the reason.
+  `pnpm radar remove <key>` removes an entry and never touches the
+  repository.
+- **Writes** (`registryFile.ts`) edit the raw JSON, so `ui` and unknown
+  fields survive. They are validated by the loader's parser before writing,
+  and land by temp-file rename, retrying briefly on Windows `EPERM`/`EBUSY`.
+- **The server** watches the registry's directory (the file may not exist
+  yet, and writes land by rename), debounces, re-reads, and reconciles in
+  place. Unchanged entries keep their adapter and watcher; removed or
+  changed ones are closed. Then it sends `registry-changed` on the shared
+  stream, and the page re-fetches its list.
+- **An invalid registry** on a live reload doesn't stop Radar. The last good
+  registry keeps being served, and `/api/projects` carries
+  `registryProblem`, which the page shows as a banner under the tabs. An
+  invalid registry at startup still refuses to start, as in M1.
+- **Verified:** tests drive `runCli` against real Git repositories and
+  remotes, and a live server through add, remove, a missing directory that
+  appears later, and a broken-then-fixed file. In Chromium, `pnpm radar add`
+  and `remove` changed the open page's tabs within the debounce, with no
+  reload. Removing the open project showed a notice, and a broken registry
+  showed the banner over the still-working last good tabs.
 
 ### After v1
 
 Keep boards mounted once the upstream key-handler fix is released. A theme
-toggle. An in-app registry editor. Starting at login.
+toggle. An in-app registry editor.
+
+**Desktop launcher** (done 2026-09-24). Chosen over starting at login: a
+window you open when you want Radar fits the workflow better than a
+background service, and it avoids the dev-port clash a service would bring.
+
+- `scripts\radar.cmd` rebuilds quietly and runs the server with `--console`.
+  `pnpm shortcut` puts a desktop shortcut to it (re-run it after moving the
+  checkout). Startup failures keep the window open so the reason stays
+  readable.
+- In `--console` mode, single keys act on the running server: `o` opens
+  Radar in a new tab of the default browser, `q` (or Ctrl+C) quits, `h`
+  lists the keys. It never opens a tab by itself, because the Radar tab is
+  usually still open from last time. Raw mode delivers Ctrl+C as a key, so
+  it shuts down cleanly and cmd.exe never asks "Terminate batch job?".
+- Launching while Radar already runs isn't an error. The second window
+  checks that the port's owner answers Radar's API, says Radar is already
+  running, and still offers `o`. A port held by anything else is reported
+  as such.
 
 ## Non-goals
 

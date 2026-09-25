@@ -10,7 +10,10 @@ import {
 } from 'react';
 import type { ProjectList, ProjectSummary } from '../shared/types.ts';
 import { createProjectApi, listProjects } from './api.ts';
-import { subscribeToProjectChanges } from './events.ts';
+import {
+  subscribeToProjectChanges,
+  subscribeToRegistryChanges,
+} from './events.ts';
 
 type LoadState =
   | { status: 'loading' }
@@ -100,6 +103,9 @@ export function App() {
     [refresh],
   );
 
+  // `pnpm radar add/remove` (or a hand edit) changed the registry.
+  useEffect(() => subscribeToRegistryChanges(refresh), [refresh]);
+
   // Looking at a project reads it.
   useEffect(() => {
     if (!activeKey) return;
@@ -120,12 +126,20 @@ export function App() {
   }
 
   const { list } = state;
+  const problem = list.registryProblem ? (
+    <RegistryProblem message={list.registryProblem} />
+  ) : null;
+
   if (list.projects.length === 0) {
     return (
-      <Notice title="No projects registered">
-        Add entries to <code>{list.registryPath}</code> and restart Radar. Copy{' '}
-        <code>registry.example.json</code> from the Radar repository to start.
-      </Notice>
+      <>
+        {problem}
+        <Notice title="No projects registered">
+          Run <code>pnpm radar add &lt;path&gt;</code> in the Radar repository.
+          This page updates on its own. The registry lives at{' '}
+          <code>{list.registryPath}</code>.
+        </Notice>
+      </>
     );
   }
 
@@ -153,6 +167,7 @@ export function App() {
   return (
     <div className="radar-shell">
       <TabBar projects={list.projects} activeKey={activeKey} unread={unread} />
+      {problem}
       <div className="radar-board">{content}</div>
     </div>
   );
@@ -202,6 +217,16 @@ function TabBar({
         })}
       </div>
     </nav>
+  );
+}
+
+/** registry.json changed but couldn't be loaded; the tabs are the last good one. */
+function RegistryProblem({ message }: { message: string }) {
+  return (
+    <div className="radar-problem" role="alert">
+      <strong>Registry not reloaded.</strong> Showing the last valid version.
+      <pre>{message}</pre>
+    </div>
   );
 }
 

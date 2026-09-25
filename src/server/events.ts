@@ -3,17 +3,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 // The single server-sent event stream for every project. One stream, not one
 // per project: browsers allow six HTTP/1.1 connections per origin, and each
 // open EventSource holds one for good. See DESIGN.md, "Architecture".
-
-/** The payload of every `tasks-changed` event. */
-export interface TasksChangedEvent {
-  project: string;
-}
+//
+// Two event types:
+// - `tasks-changed`, data `{"project": "<key>"}`: a project's files changed.
+// - `registry-changed`, data `{}`: the registry was re-read; re-fetch the
+//   project list.
 
 export interface EventHub {
   /** Take over a `GET /api/events` response and keep it open. */
   attach(req: IncomingMessage, res: ServerResponse): void;
-  /** Tell every client that a project's files changed. */
-  broadcast(projectKey: string): void;
+  tasksChanged(projectKey: string): void;
+  registryChanged(): void;
   close(): void;
 }
 
@@ -29,6 +29,11 @@ export function createEventHub(): EventHub {
   }, HEARTBEAT_MS);
   heartbeat.unref();
 
+  function send(event: string, data: object): void {
+    const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const client of clients) client.write(message);
+  }
+
   return {
     attach(req, res) {
       res.writeHead(200, {
@@ -42,10 +47,12 @@ export function createEventHub(): EventHub {
       req.on('close', () => clients.delete(res));
     },
 
-    broadcast(projectKey) {
-      const payload: TasksChangedEvent = { project: projectKey };
-      const message = `event: tasks-changed\ndata: ${JSON.stringify(payload)}\n\n`;
-      for (const client of clients) client.write(message);
+    tasksChanged(projectKey) {
+      send('tasks-changed', { project: projectKey });
+    },
+
+    registryChanged() {
+      send('registry-changed', {});
     },
 
     close() {

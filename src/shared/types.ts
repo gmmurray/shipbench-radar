@@ -20,4 +20,9 @@ export interface ProjectList {
   /** Where the registry lives, so an empty list can say what to edit. */
   registryPath: string;
   projects: ProjectSummary[];
+  /**
+   * Set when registry.json changed on disk but couldn't be loaded. The
+   * projects above are then the last good registry, still being served.
+   */
+  registryProblem?: string;
 }

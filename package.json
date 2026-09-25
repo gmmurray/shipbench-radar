@@ -9,6 +9,8 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "vite build && node src/server/main.ts",
+    "console": "vite build --logLevel warn && node src/server/main.ts --console",
+    "shortcut": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-shortcut.ps1",
     "radar": "node src/cli/radar.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "lint": "biome lint .",

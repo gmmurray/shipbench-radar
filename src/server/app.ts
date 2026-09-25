@@ -8,8 +8,11 @@ import { checkRequest } from './security.ts';
 import { serveStatic } from './static.ts';
 
 export interface RadarAppOptions {
+  /** Current projects. The caller may replace entries between requests. */
   projects: Map<string, Project>;
   events: EventHub;
+  /** Why the latest registry.json couldn't be loaded, if it couldn't. */
+  getRegistryProblem?: () => string | null;
   /** The port actually bound; the Host and Origin checks depend on it. */
   port: number;
   /** Extra allowed origins; in dev, Vite's. */
@@ -61,6 +64,8 @@ export function createRadarHandler(
           [...options.projects.values()].map(summarize),
         ),
       };
+      const problem = options.getRegistryProblem?.();
+      if (problem) body.registryProblem = problem;
       sendJson(res, 200, body);
       return;
     }

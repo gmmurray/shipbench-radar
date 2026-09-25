@@ -4,31 +4,26 @@ import {
   inspectProjectInitialization,
   type ShipbenchConfig,
 } from '@shipbench/core';
-import type { Registry, RegistryEntry } from './registry.ts';
+import type { RegistryEntry } from './registry.ts';
 
+/**
+ * A registry entry and its adapter, whether or not its path currently
+ * resolves. Constructing an `FsAdapter` touches nothing on disk, and checking
+ * availability per request (below) means a repository that is moved back, or
+ * initialized later, becomes available without a restart.
+ */
 export interface Project {
   entry: RegistryEntry;
   adapter: FsAdapter;
 }
 
+export function openProject(entry: RegistryEntry): Project {
+  return { entry, adapter: new FsAdapter(entry.path) };
+}
+
 export type ProjectStatus =
   | { available: true; config: ShipbenchConfig }
   | { available: false; reason: string };
-
-/**
- * One adapter per registry entry, whether or not its path currently resolves.
- * Constructing an `FsAdapter` touches nothing on disk, and checking
- * availability per request (below) means a repository that is moved back, or
- * initialized later, becomes available without a restart.
- */
-export function openProjects(registry: Registry): Map<string, Project> {
-  return new Map(
-    registry.projects.map(entry => [
-      entry.key,
-      { entry, adapter: new FsAdapter(entry.path) },
-    ]),
-  );
-}
 
 async function pathProblem(path: string): Promise<string | null> {
   try {

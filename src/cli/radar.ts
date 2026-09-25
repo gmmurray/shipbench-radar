@@ -1,5 +1,12 @@
-// M0 placeholder. `add`, `list`, and `remove` arrive in M3 (DESIGN.md, "v1
-// plan").
+import { registryPathIn, resolveConfigDir } from '../server/configDir.ts';
+import { runCli } from './commands.ts';
 
-console.error('Usage: pnpm radar <add|list|remove> (not implemented yet)');
-process.exit(1);
+// pnpm runs scripts from the package directory; INIT_CWD is where the user
+// actually typed `pnpm radar add .`.
+const exitCode = await runCli(process.argv.slice(2), {
+  cwd: process.env.INIT_CWD ?? process.cwd(),
+  registryPath: registryPathIn(resolveConfigDir()),
+  out: line => console.log(line),
+  err: line => console.error(line),
+});
+process.exit(exitCode);

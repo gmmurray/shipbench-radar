@@ -1,11 +1,18 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
-import { type IncomingHttpHeaders, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FsAdapter, initProject } from '@shipbench/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ProjectList } from '../shared/types.ts';
 import { type RunningRadar, startRadar } from './radar.ts';
+import {
+  JSON_HEADERS,
+  openEventStream as openStream,
+  sendJson,
+  send as sendTo,
+  TASK_FILE,
+  waitFor,
+} from './testSupport.ts';
 
 let root: string;
 let alphaPath: string;
@@ -13,46 +20,14 @@ let betaPath: string;
 let radar: RunningRadar;
 let port: number;
 
-interface Reply {
-  status: number;
-  headers: IncomingHttpHeaders;
-  body: string;
-}
-
-function send(
+const send = (
   method: string,
   path: string,
-  options: { headers?: Record<string, string>; body?: string } = {},
-): Promise<Reply> {
-  return new Promise((resolve, reject) => {
-    const req = request(
-      { host: '127.0.0.1', port, method, path, headers: options.headers },
-      res => {
-        const chunks: Buffer[] = [];
-        res.on('data', chunk => chunks.push(chunk));
-        res.on('end', () =>
-          resolve({
-            status: res.statusCode ?? 0,
-            headers: res.headers,
-            body: Buffer.concat(chunks).toString('utf-8'),
-          }),
-        );
-      },
-    );
-    req.on('error', reject);
-    if (options.body !== undefined) req.write(options.body);
-    req.end();
-  });
-}
-
-const JSON_HEADERS = { 'content-type': 'application/json' };
-
-function sendJsonBody(method: string, path: string, value?: unknown) {
-  return send(method, path, {
-    headers: JSON_HEADERS,
-    body: value === undefined ? undefined : JSON.stringify(value),
-  });
-}
+  options?: { headers?: Record<string, string>; body?: string },
+) => sendTo(port, method, path, options);
+const sendJsonBody = (method: string, path: string, value?: unknown) =>
+  sendJson(port, method, path, value);
+const openEventStream = () => openStream(port);
 
 async function taskFiles(): Promise<string[]> {
   return (await readdir(join(alphaPath, '.shipbench', 'tasks'))).filter(f =>
@@ -101,49 +76,6 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-/** Open the shared event stream and collect the project key of each event. */
-function openEventStream(): Promise<{ projects: string[]; close(): void }> {
-  return new Promise((resolve, reject) => {
-    const projects: string[] = [];
-    const req = request(
-      { host: '127.0.0.1', port, path: '/api/events' },
-      res => {
-        let buffer = '';
-        res.setEncoding('utf-8');
-        res.on('data', (chunk: string) => {
-          buffer += chunk;
-          const messages = buffer.split('\n\n');
-          buffer = messages.pop() ?? '';
-          for (const message of messages) {
-            const data = /^data: (.*)$/m.exec(message)?.[1];
-            if (data)
-              projects.push((JSON.parse(data) as { project: string }).project);
-          }
-        });
-        resolve({ projects, close: () => req.destroy() });
-      },
-    );
-    req.on('error', reject);
-    req.end();
-  });
-}
-
-async function waitFor(predicate: () => boolean, timeoutMs = 5000) {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error('timed out');
-    await new Promise(resolve => setTimeout(resolve, 25));
-  }
-}
-
-const TASK_FILE = `---
-title: Written by an agent
-status: todo
-created: 2026-09-23T00:00:00.000Z
-updated: 2026-09-23T00:00:00.000Z
----
-`;
-
 describe('event stream', () => {
   it('reports an outside write to a project, tagged with its key', async () => {
     const stream = await openEventStream();
@@ -152,8 +84,8 @@ describe('event stream', () => {
         join(betaPath, '.shipbench', 'tasks', 'agent-task.md'),
         TASK_FILE,
       );
-      await waitFor(() => stream.projects.includes('beta'));
-      expect(stream.projects).not.toContain('alpha');
+      await waitFor(() => stream.projects().includes('beta'));
+      expect(stream.projects()).not.toContain('alpha');
     } finally {
       stream.close();
     }
@@ -168,7 +100,8 @@ describe('event stream', () => {
       });
       await waitFor(
         () =>
-          first.projects.includes('alpha') && second.projects.includes('alpha'),
+          first.projects().includes('alpha') &&
+          second.projects().includes('alpha'),
       );
     } finally {
       first.close();
@@ -185,9 +118,9 @@ describe('event stream', () => {
           TASK_FILE,
         );
       }
-      await waitFor(() => stream.projects.includes('beta'));
+      await waitFor(() => stream.projects().includes('beta'));
       await new Promise(resolve => setTimeout(resolve, 400));
-      expect(stream.projects.filter(key => key === 'beta')).toHaveLength(1);
+      expect(stream.projects().filter(key => key === 'beta')).toHaveLength(1);
     } finally {
       stream.close();
     }
