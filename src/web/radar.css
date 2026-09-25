@@ -174,22 +174,68 @@
   color: var(--sb-silver);
 }
 
-/* ---- Notices ------------------------------------------------------------ */
-
-.radar-notice {
-  max-width: 36rem;
-  margin: 18vh auto 0;
-  padding: 0 1.5rem;
-  font-family: "IBM Plex Sans", sans-serif;
-  color: var(--sb-frosted);
+/* The Projects link sits apart at the far end of the tab bar. */
+.radar-tab-manage {
+  margin-left: auto;
+  border-right: none;
+  border-left: 1px solid var(--sb-divider);
+  color: var(--sb-silver);
 }
 
-.radar-notice-eyebrow {
+/* ---- Shared text ------------------------------------------------------- */
+
+.radar-eyebrow {
   font-family: "Intel One Mono", monospace;
   font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--sb-silver);
+}
+
+.radar-notice code,
+.radar-page code {
+  font-family: "Intel One Mono", monospace;
+  color: var(--sb-frosted);
+  word-break: break-all;
+}
+
+.radar-notice a,
+.radar-page a {
+  color: var(--sb-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.radar-hint {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--sb-silver);
+}
+
+.radar-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--sb-danger);
+  white-space: pre-line;
+}
+
+.radar-success {
+  font-size: 13px;
+  color: var(--sb-success);
+}
+
+/* ---- Notices ------------------------------------------------------------ */
+
+.radar-notice {
+  max-width: 40rem;
+  margin: 18vh auto 0;
+  padding: 0 1.5rem;
+  font-family: "IBM Plex Sans", sans-serif;
+  color: var(--sb-frosted);
 }
 
 .radar-notice h1 {
@@ -198,15 +244,264 @@
   font-weight: 600;
 }
 
-.radar-notice p:last-child {
+.radar-notice-body {
   margin-top: 0.75rem;
   font-size: 13px;
   line-height: 1.6;
   color: var(--sb-silver);
 }
 
-.radar-notice code {
-  font-family: "Intel One Mono", monospace;
+.radar-notice-body > * + * {
+  margin-top: 0.75rem;
+}
+
+/* ---- Projects page ------------------------------------------------------ */
+
+.radar-page {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+  font-family: "IBM Plex Sans", sans-serif;
   color: var(--sb-frosted);
+}
+
+.radar-page h1 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.radar-section {
+  margin-top: 2.5rem;
+}
+
+.radar-section h2 {
+  margin-bottom: 0.5rem;
+  font-family: "Intel One Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sb-silver);
+}
+
+.radar-suggestions {
+  margin-top: 1.75rem;
+}
+
+.radar-suggestions h3 {
+  margin-bottom: 0.5rem;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.radar-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.radar-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--sb-iron);
+  border-radius: 4px;
+  background: var(--sb-surface);
+}
+
+.radar-row[draggable="true"] {
+  cursor: grab;
+}
+
+.radar-row[data-dragging] {
+  opacity: 0.5;
+}
+
+.radar-row-compact {
+  align-items: center;
+  padding: 0.5rem 1rem;
+}
+
+.radar-row-grip {
+  padding-top: 0.1rem;
+  color: var(--sb-iron);
+  user-select: none;
+}
+
+.radar-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.radar-row-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.radar-row-title a {
+  color: var(--sb-frosted);
+  text-decoration: none;
+}
+
+.radar-row-title a:hover {
+  text-decoration: underline;
+}
+
+.radar-row-meta {
+  margin-top: 0.15rem;
+  font-family: "Intel One Mono", monospace;
+  font-size: 12px;
+  color: var(--sb-silver);
   word-break: break-all;
+}
+
+.radar-row-reason {
+  margin-top: 0.35rem;
+  font-size: 13px;
+  color: var(--sb-warning);
+}
+
+.radar-row-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+
+.radar-status {
+  padding: 0 0.4rem;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-family: "Intel One Mono", monospace;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.radar-status[data-state="ok"] {
+  color: var(--sb-success);
+}
+
+.radar-status[data-state="missing"] {
+  color: var(--sb-warning);
+}
+
+/* ---- Forms -------------------------------------------------------------- */
+
+.radar-inline-form {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--sb-divider);
+  font-size: 13px;
+}
+
+.radar-inline-form > * + *,
+.radar-add > * + * {
+  margin-top: 0.75rem;
+}
+
+.radar-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 12px;
+  color: var(--sb-silver);
+}
+
+.radar-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.radar-input {
+  height: 2.25rem;
+  width: 100%;
+  min-width: 12rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--sb-iron);
+  border-radius: 4px;
+  background: var(--sb-surface2);
+  font-family: "Intel One Mono", monospace;
+  font-size: 13px;
+  color: var(--sb-frosted);
+}
+
+.radar-input::placeholder {
+  color: var(--sb-silver);
+  opacity: 0.7;
+}
+
+.radar-input:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: -1px;
+}
+
+.radar-input[aria-invalid="true"] {
+  border-color: var(--sb-danger);
+}
+
+.radar-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.radar-button {
+  height: 2rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--sb-iron);
+  border-radius: 4px;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sb-frosted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 120ms,
+    border-color 120ms;
+}
+
+.radar-button:hover:not(:disabled) {
+  background: var(--sb-surface2);
+  border-color: var(--sb-ironlit);
+}
+
+.radar-button:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 1px;
+}
+
+.radar-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.radar-button-icon {
+  width: 2rem;
+  padding: 0;
+}
+
+.radar-button-primary {
+  border-color: var(--sb-accent);
+  background: var(--sb-accent);
+  color: var(--sb-canvas);
+  font-weight: 600;
+}
+
+.radar-button-primary:hover:not(:disabled) {
+  border-color: var(--sb-accent-hover);
+  background: var(--sb-accent-hover);
+}
+
+.radar-button-danger {
+  border-color: var(--sb-danger);
+  color: var(--sb-danger);
 }

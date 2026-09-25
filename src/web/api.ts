@@ -1,5 +1,10 @@
 import type { BoardAPI, TaskFrontmatter } from '@shipbench/core';
-import type { ProjectList } from '../shared/types.ts';
+import type {
+  EntryShape,
+  ProjectList,
+  ProjectSuggestion,
+  RegistryApiError,
+} from '../shared/types.ts';
 import { subscribeToProjectChanges } from './events.ts';
 
 // Mirrors the CLI's BoardAPI in ../shipbench/packages/board/src/standalone.tsx,
@@ -8,18 +13,40 @@ import { subscribeToProjectChanges } from './events.ts';
 // writes without it (DESIGN.md, "The local server"), including bodiless ones
 // like unarchive and delete.
 
+/** A refused request. Registry refusals also say which input to fix. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly field?: RegistryApiError['field'];
+  readonly example?: string;
+
+  constructor(
+    status: number,
+    body: Partial<RegistryApiError>,
+    fallback: string,
+  ) {
+    super(typeof body.error === 'string' ? body.error : fallback);
+    this.name = 'ApiError';
+    this.status = status;
+    this.field = body.field;
+    this.example = body.example;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
 
   if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
+    let body: Partial<RegistryApiError> = {};
     try {
-      const body = (await response.json()) as { error?: unknown };
-      if (typeof body.error === 'string') message = body.error;
+      body = (await response.json()) as Partial<RegistryApiError>;
     } catch {
-      // Not JSON; keep the status line.
+      // Not JSON; the status line will do.
     }
-    throw new Error(message);
+    throw new ApiError(
+      response.status,
+      body,
+      `${response.status} ${response.statusText}`,
+    );
   }
 
   if (response.status === 204) return undefined as T;
@@ -37,6 +64,45 @@ function write(method: string, value?: unknown): RequestInit {
 export function listProjects(): Promise<ProjectList> {
   return request('/api/projects');
 }
+
+export interface AdditionInput {
+  path: string;
+  key?: string;
+  id?: string;
+}
+
+/**
+ * The Projects page's calls. Each write resolves once the server has
+ * re-read the registry, so a list fetched afterwards already shows it.
+ */
+export const registryApi = {
+  suggestions: () =>
+    request<{ suggestions: ProjectSuggestion[] }>(
+      '/api/registry/suggestions',
+    ).then(body => body.suggestions),
+  preview: (input: AdditionInput) =>
+    request<{ entry: EntryShape }>(
+      '/api/registry/projects',
+      write('POST', { ...input, dryRun: true }),
+    ).then(body => body.entry),
+  add: (input: AdditionInput) =>
+    request<{ entry: EntryShape }>(
+      '/api/registry/projects',
+      write('POST', input),
+    ).then(body => body.entry),
+  repair: (key: string, path: string) =>
+    request<{ entry: EntryShape }>(
+      `/api/registry/projects/${encodeURIComponent(key)}`,
+      write('PATCH', { path }),
+    ).then(body => body.entry),
+  remove: (key: string) =>
+    request<void>(
+      `/api/registry/projects/${encodeURIComponent(key)}`,
+      write('DELETE'),
+    ),
+  setOrder: (order: string[]) =>
+    request<void>('/api/registry/order', write('PUT', { order })),
+};
 
 export function createProjectApi(key: string): BoardAPI {
   const base = `/api/projects/${encodeURIComponent(key)}`;

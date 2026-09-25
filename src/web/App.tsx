@@ -14,6 +14,12 @@ import {
   subscribeToProjectChanges,
   subscribeToRegistryChanges,
 } from './events.ts';
+import {
+  PROJECTS_HREF,
+  PROJECTS_PAGE,
+  ProjectsPage,
+  RepairForm,
+} from './ProjectsPage.tsx';
 
 type LoadState =
   | { status: 'loading' }
@@ -22,6 +28,7 @@ type LoadState =
 
 // The URL hash names the active project (`#/shipbench`), so a reload or a
 // pinned tab lands on the same board. Tabs are links that set it.
+// `#/_projects` is the Projects page; keys can't contain `_`.
 function readHashKey(): string | null {
   const match = /^#\/(.+)$/.exec(window.location.hash);
   return match ? decodeURIComponent(match[1]!) : null;
@@ -36,13 +43,42 @@ function hrefFor(key: string): string {
   return `#/${encodeURIComponent(key)}`;
 }
 
-/** The project the hash names; without a hash, the first available one. */
+// The last project on screen, for a visit with no hash (the launcher's `o`
+// opens the bare URL). A per-browser convenience, so browser storage; it may
+// be unavailable, and then Radar just starts on the first project.
+const LAST_PROJECT_KEY = 'radar.lastProject';
+
+function readLastProject(): string | null {
+  try {
+    return localStorage.getItem(LAST_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberProject(key: string): void {
+  try {
+    localStorage.setItem(LAST_PROJECT_KEY, key);
+  } catch {
+    // Storage unavailable; nothing to remember.
+  }
+}
+
+/**
+ * The project the hash names. Without a hash: the last one viewed in this
+ * browser, else the first available, else the first.
+ */
 function pickProject(
   projects: ProjectSummary[],
   hashKey: string | null,
 ): ProjectSummary | undefined {
   if (hashKey) return projects.find(p => p.key === hashKey);
-  return projects.find(p => p.available) ?? projects[0];
+  const last = readLastProject();
+  return (
+    projects.find(p => p.key === last) ??
+    projects.find(p => p.available) ??
+    projects[0]
+  );
 }
 
 export function App() {
@@ -77,8 +113,9 @@ export function App() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [refresh]);
 
+  const onProjectsPage = hashKey === PROJECTS_PAGE;
   const projects = state.status === 'ready' ? state.list.projects : [];
-  const active = pickProject(projects, hashKey);
+  const active = onProjectsPage ? undefined : pickProject(projects, hashKey);
   const activeKey = active?.key ?? null;
 
   // The stream listener outlives renders, so it reads the active key from a
@@ -86,6 +123,7 @@ export function App() {
   const activeKeyRef = useRef(activeKey);
   useEffect(() => {
     activeKeyRef.current = activeKey;
+    if (activeKey) rememberProject(activeKey);
   }, [activeKey]);
 
   // Mark projects that change while another one is on screen. The mounted
@@ -103,7 +141,7 @@ export function App() {
     [refresh],
   );
 
-  // `pnpm radar add/remove` (or a hand edit) changed the registry.
+  // The registry changed: `pnpm radar`, the Projects page, or a hand edit.
   useEffect(() => subscribeToRegistryChanges(refresh), [refresh]);
 
   // Looking at a project reads it.
@@ -130,32 +168,31 @@ export function App() {
     <RegistryProblem message={list.registryProblem} />
   ) : null;
 
-  if (list.projects.length === 0) {
-    return (
-      <>
-        {problem}
-        <Notice title="No projects registered">
-          Run <code>pnpm radar add &lt;path&gt;</code> in the Radar repository.
-          This page updates on its own. The registry lives at{' '}
-          <code>{list.registryPath}</code>.
-        </Notice>
-      </>
-    );
-  }
-
   let content: ReactNode;
-  if (!active) {
+  if (onProjectsPage) {
+    content = <ProjectsPage list={list} refresh={refresh} />;
+  } else if (list.projects.length === 0) {
+    content = (
+      <Notice title="No projects registered">
+        Add one on the <a href={PROJECTS_HREF}>Projects page</a>, or run{' '}
+        <code>pnpm radar add &lt;path&gt;</code> in the Radar repository.
+      </Notice>
+    );
+  } else if (!active) {
     content = (
       <Notice title={`No project named “${hashKey}”`}>
-        It isn’t in <code>{list.registryPath}</code>.
+        It isn’t registered. See the <a href={PROJECTS_HREF}>Projects page</a>.
       </Notice>
     );
   } else if (!active.available) {
     content = (
       <Notice title={`${active.name ?? active.key} is unavailable`}>
-        {active.reason}
-        <br />
-        Registered as <code>{active.id}</code>.
+        <p>{active.reason}</p>
+        <p>
+          Registered as <code>{active.id}</code>. If the repository moved, point
+          Radar at its new location:
+        </p>
+        <RepairForm project={active} refresh={refresh} />
       </Notice>
     );
   } else {
@@ -166,7 +203,12 @@ export function App() {
 
   return (
     <div className="radar-shell">
-      <TabBar projects={list.projects} activeKey={activeKey} unread={unread} />
+      <TabBar
+        projects={list.projects}
+        activeKey={activeKey}
+        onProjectsPage={onProjectsPage}
+        unread={unread}
+      />
       {problem}
       <div className="radar-board">{content}</div>
     </div>
@@ -176,10 +218,12 @@ export function App() {
 function TabBar({
   projects,
   activeKey,
+  onProjectsPage,
   unread,
 }: {
   projects: ProjectSummary[];
   activeKey: string | null;
+  onProjectsPage: boolean;
   unread: ReadonlySet<string>;
 }) {
   return (
@@ -216,6 +260,14 @@ function TabBar({
           );
         })}
       </div>
+      <a
+        href={PROJECTS_HREF}
+        className="radar-tab radar-tab-manage"
+        aria-current={onProjectsPage ? 'page' : undefined}
+        title="Add, reorder, repair, or remove projects"
+      >
+        <span aria-hidden>+</span> Projects
+      </a>
     </nav>
   );
 }
@@ -224,7 +276,8 @@ function TabBar({
 function RegistryProblem({ message }: { message: string }) {
   return (
     <div className="radar-problem" role="alert">
-      <strong>Registry not reloaded.</strong> Showing the last valid version.
+      <strong>Registry not reloaded.</strong> Showing the last valid version;
+      changes from the Projects page wait until the file is fixed.
       <pre>{message}</pre>
     </div>
   );
@@ -239,9 +292,9 @@ function BoardHost({ projectKey }: { projectKey: string }) {
 function Notice({ title, children }: { title: string; children: ReactNode }) {
   return (
     <main className="radar-notice">
-      <p className="radar-notice-eyebrow">Radar</p>
+      <p className="radar-eyebrow">Radar</p>
       <h1>{title}</h1>
-      <p>{children}</p>
+      <div className="radar-notice-body">{children}</div>
     </main>
   );
 }

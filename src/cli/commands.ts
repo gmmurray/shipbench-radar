@@ -2,25 +2,21 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { inspectProject, openProject } from '../server/projects.ts';
 import {
-  KEY_PATTERN,
-  loadRegistry,
-  type RegistryEntry,
-  RegistryError,
-} from '../server/registry.ts';
+  planAddition,
+  planRepair,
+  RegistrationError,
+} from '../server/registration.ts';
+import { inTabOrder, loadRegistry, RegistryError } from '../server/registry.ts';
 import {
   addRegistryEntry,
   removeRegistryEntry,
+  setRegistryEntryPath,
 } from '../server/registryFile.ts';
-import {
-  directoryName,
-  githubIdentity,
-  readOriginUrl,
-  suggestKey,
-} from './identity.ts';
 
 // `pnpm radar <command>`: explicit registration (DESIGN.md, "v1 plan" › M3).
-// A running Radar watches registry.json, so every change here reaches it
-// without a restart.
+// The rules live in registration.ts, shared with the Projects page. A running
+// Radar watches registry.json, so every change here reaches it without a
+// restart.
 
 export interface CliContext {
   /** Where relative paths resolve from: the user's shell, not the package. */
@@ -38,18 +34,30 @@ Commands:
       "origin" remote; a repository without one needs --id (e.g.
       local/<name>). The key, used in Radar's URLs, defaults to the
       repository name.
+  move <key> <path>
+      Point a project at its new location after the repository moved. A
+      GitHub identity must match the new checkout's origin.
   list
-      Show every registered project and whether it is available.
+      Show every registered project, in tab order, and whether it is
+      available.
   remove <key>
       Unregister a project. Its repository is not touched.`;
 
 /** Thrown for a user-facing failure; its message is the whole report. */
 class CliError extends Error {}
 
-function samePath(a: string, b: string): boolean {
-  return process.platform === 'win32'
-    ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
-    : resolve(a) === resolve(b);
+/** A shared-rule refusal, plus the flag that fixes it. */
+function cliMessage(error: RegistrationError): string {
+  switch (error.field) {
+    case 'id': {
+      const example = error.example ? `, e.g. --id ${error.example}` : '';
+      return `${error.message}\nPass one with --id${example}.`;
+    }
+    case 'key':
+      return `${error.message}\nPick another with --key.`;
+    default:
+      return error.message;
+  }
 }
 
 async function add(args: string[], context: CliContext): Promise<void> {
@@ -62,73 +70,36 @@ async function add(args: string[], context: CliContext): Promise<void> {
     throw new CliError(`add takes exactly one path.\n\n${USAGE}`);
   }
 
-  const path = resolve(context.cwd, positionals[0]!);
-
-  const status = await inspectProject(openProject({ key: '-', id: '-', path }));
-  if (!status.available) {
-    throw new CliError(
-      `${status.reason}\nRegister a ShipBench project: run \`shipbench init\` there first.`,
-    );
-  }
-
-  let id = values.id?.trim();
-  let repoName: string | null = null;
-  const remote = await readOriginUrl(path);
-  const github = remote ? githubIdentity(remote) : null;
-  if (github) repoName = github.repo;
-  if (!id) {
-    if (!github) {
-      throw new CliError(
-        remote
-          ? `The origin remote (${remote}) is not a GitHub URL.\nPass an identity with --id, e.g. --id local/${directoryName(path)}.`
-          : `${path} has no origin remote.\nPass an identity with --id, e.g. --id local/${directoryName(path)}.`,
-      );
-    }
-    id = github.id;
-  }
-
-  const key =
-    values.key ?? suggestKey(repoName ?? directoryName(path)) ?? undefined;
-  if (!key) {
-    throw new CliError(
-      `Couldn't derive a key from "${repoName ?? directoryName(path)}". Pass one with --key.`,
-    );
-  }
-  if (!KEY_PATTERN.test(key)) {
-    throw new CliError(
-      `Invalid key "${key}": use lowercase letters, digits, and hyphens.`,
-    );
-  }
-
   const registry = await loadRegistry(context.registryPath);
-  for (const existing of registry.projects) {
-    if (existing.key === key) {
-      throw new CliError(
-        `The key "${key}" is already used by ${existing.id} (${existing.path}).\nPick another with --key.`,
-      );
-    }
-    if (existing.id === id) {
-      throw new CliError(
-        `${id} is already registered as "${existing.key}" (${existing.path}).\nRadar treats every checkout of one repository as one project; remove the old entry first to move it.`,
-      );
-    }
-    if (samePath(existing.path, path)) {
-      throw new CliError(
-        `${path} is already registered as "${existing.key}" (${existing.id}).`,
-      );
-    }
-  }
-
-  const entry: RegistryEntry = { key, id, path };
+  const entry = await planAddition(
+    {
+      path: resolve(context.cwd, positionals[0]!),
+      key: values.key,
+      id: values.id,
+    },
+    registry,
+  );
   await addRegistryEntry(context.registryPath, entry);
-  context.out(`Added "${key}": ${id}`);
-  context.out(`  ${path}`);
+  context.out(`Added "${entry.key}": ${entry.id}`);
+  context.out(`  ${entry.path}`);
   context.out(`Registry: ${context.registryPath}`);
 }
 
+async function move(args: string[], context: CliContext): Promise<void> {
+  if (args.length !== 2) {
+    throw new CliError(`move takes a key and a path.\n\n${USAGE}`);
+  }
+  const [key, target] = args as [string, string];
+  const registry = await loadRegistry(context.registryPath);
+  const entry = await planRepair(key, resolve(context.cwd, target), registry);
+  await setRegistryEntryPath(context.registryPath, key, entry.path);
+  context.out(`Moved "${key}" (${entry.id}) to ${entry.path}`);
+}
+
 async function list(args: string[], context: CliContext): Promise<void> {
-  if (args.length > 0)
+  if (args.length > 0) {
     throw new CliError(`list takes no arguments.\n\n${USAGE}`);
+  }
 
   const registry = await loadRegistry(context.registryPath);
   context.out(`Registry: ${context.registryPath}`);
@@ -137,8 +108,9 @@ async function list(args: string[], context: CliContext): Promise<void> {
     return;
   }
 
-  const width = Math.max(...registry.projects.map(p => p.key.length));
-  for (const entry of registry.projects) {
+  const entries = inTabOrder(registry);
+  const width = Math.max(...entries.map(p => p.key.length));
+  for (const entry of entries) {
     const status = await inspectProject(openProject(entry));
     const mark = status.available ? 'ok     ' : 'missing';
     context.out(`  ${entry.key.padEnd(width)}  ${mark}  ${entry.id}`);
@@ -150,8 +122,9 @@ async function list(args: string[], context: CliContext): Promise<void> {
 }
 
 async function remove(args: string[], context: CliContext): Promise<void> {
-  if (args.length !== 1)
+  if (args.length !== 1) {
     throw new CliError(`remove takes one key.\n\n${USAGE}`);
+  }
   const key = args[0]!;
 
   const removed = await removeRegistryEntry(context.registryPath, key);
@@ -174,6 +147,9 @@ export async function runCli(
       case 'add':
         await add(rest, context);
         return 0;
+      case 'move':
+        await move(rest, context);
+        return 0;
       case 'list':
         await list(rest, context);
         return 0;
@@ -191,6 +167,10 @@ export async function runCli(
         return 1;
     }
   } catch (error) {
+    if (error instanceof RegistrationError) {
+      context.err(cliMessage(error));
+      return 1;
+    }
     if (error instanceof CliError || error instanceof RegistryError) {
       context.err(error.message);
       return 1;

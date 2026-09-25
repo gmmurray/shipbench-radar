@@ -42,6 +42,28 @@ export function emptyRegistry(): Registry {
   return { version: 1, projects: [], ui: {} };
 }
 
+/**
+ * Entries in tab order. `ui.order` lists keys; keys it names come first, in
+ * its order, then everything it doesn't mention, in registry order. Read
+ * leniently: `ui` is preference, so a malformed or stale order degrades to
+ * registry order rather than failing the load.
+ */
+export function inTabOrder(registry: Registry): RegistryEntry[] {
+  const order = registry.ui.order;
+  if (!Array.isArray(order)) return registry.projects;
+
+  const byKey = new Map(registry.projects.map(entry => [entry.key, entry]));
+  const ordered: RegistryEntry[] = [];
+  for (const key of order) {
+    const entry = typeof key === 'string' ? byKey.get(key) : undefined;
+    if (entry) {
+      ordered.push(entry);
+      byKey.delete(key as string);
+    }
+  }
+  return [...ordered, ...byKey.values()];
+}
+
 /** Parse and validate registry JSON, reporting every problem at once. */
 export function parseRegistry(raw: string, source: string): Registry {
   let data: unknown;

@@ -8,6 +8,7 @@ import { createRadarHandler } from './app.ts';
 import { createEventHub } from './events.ts';
 import { openProject, type Project } from './projects.ts';
 import {
+  inTabOrder,
   loadRegistry,
   type Registry,
   type RegistryEntry,
@@ -58,6 +59,7 @@ export async function startRadar(
   // sees the current projects. Insertion order is registry (tab) order.
   const projects = new Map<string, Project>();
   const slots = new Map<string, Slot>();
+  let current: Registry = options.registry;
   let registryProblem: string | null = null;
 
   async function startWatcher(slot: Slot): Promise<void> {
@@ -80,8 +82,9 @@ export async function startRadar(
    * appeared since startup starts sending live updates.
    */
   async function reconcile(registry: Registry): Promise<void> {
+    current = registry;
     const next = new Map<string, Slot>();
-    for (const entry of registry.projects) {
+    for (const entry of inTabOrder(registry)) {
       const current = slots.get(entry.key);
       if (current && sameEntry(current.project.entry, entry)) {
         next.set(entry.key, current);
@@ -108,9 +111,12 @@ export async function startRadar(
   await reconcile(options.registry);
 
   // Serialize re-reads so a burst of registry writes can't interleave two
-  // reconciles.
+  // reconciles. The watcher calls this after any change to the file; the
+  // registry API also calls it right after its own writes, so its response
+  // reflects the change. Either way the server learns only by re-reading
+  // the file.
   let pending = Promise.resolve();
-  function reloadRegistry(): void {
+  function reloadRegistry(): Promise<void> {
     pending = pending.then(async () => {
       try {
         const registry = await loadRegistry(registryPath);
@@ -127,6 +133,7 @@ export async function startRadar(
       }
       events.registryChanged();
     });
+    return pending;
   }
 
   // Watch the directory rather than the file: the file may not exist yet,
@@ -141,7 +148,7 @@ export async function startRadar(
   registryWatcher.on('all', (_event, changedPath) => {
     if (resolve(changedPath) !== resolve(registryPath)) return;
     if (registryDebounce) clearTimeout(registryDebounce);
-    registryDebounce = setTimeout(reloadRegistry, DEBOUNCE_MS);
+    registryDebounce = setTimeout(() => void reloadRegistry(), DEBOUNCE_MS);
   });
   await new Promise<void>((resolveReady, reject) => {
     registryWatcher.once('ready', resolveReady);
@@ -168,11 +175,15 @@ export async function startRadar(
   const handler = createRadarHandler({
     projects,
     events,
-    getRegistryProblem: () => registryProblem,
+    registry: {
+      path: registryPath,
+      current: () => current,
+      problem: () => registryProblem,
+      reload: reloadRegistry,
+    },
     port,
     extraOrigins: options.extraOrigins,
     webDir: options.webDir,
-    registryPath,
     warn,
   });
   server.on('request', (req, res) => void handler(req, res));

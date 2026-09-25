@@ -1,6 +1,7 @@
 # Radar — design notes
 
-Status: v1 (M0–M3) done 2026-09-23; see "v1 plan". Written 2026-09-21 against
+Status: v1 (M0–M3) done 2026-09-23; launcher and Projects page done
+2026-09-24 (see "After v1"). Written 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
 version-skew, and local-server sections.
@@ -209,6 +210,21 @@ server.** The CLI writes no lockfile or pidfile, and it picks the first free
 port from its preferred one, so there is nothing reliable to detect. A second
 writer on the same repository is the same last-write-wins exposure as an
 agent, and is accepted on the same terms.
+
+### Watched folders can't be moved on Windows
+
+Radar watches each project's `.shipbench/` with native file watchers, the
+same way `shipbench board` does. On Windows, an open watcher stops the
+repository's folder (or any folder above it) from being renamed or moved:
+Explorer reports the folder as in use, and `rename` fails with `EPERM`.
+Closing the watcher releases it. Polling watchers don't lock, but they cost
+CPU for every project and add up to their interval of latency to live
+updates.
+
+For now, move a repository while Radar is stopped (`q` in the launcher),
+then repair the entry from its tab or the Projects page. If moves turn out
+to be common, the options are polling watchers, or releasing a project's
+watcher from the Projects page before a move.
 
 ### Version skew
 
@@ -467,7 +483,53 @@ Done 2026-09-23. As built:
 ### After v1
 
 Keep boards mounted once the upstream key-handler fix is released. A theme
-toggle. An in-app registry editor.
+toggle.
+
+**Projects page** (done 2026-09-24), at `#/_projects`: keys can't contain
+`_`, so the address can't clash with a project. A "+ Projects" link sits at
+the far end of the tab bar.
+
+- **Rules shared with the CLI.** `src/server/registration.ts` holds the add
+  and repair rules. Both `pnpm radar` and the registry API
+  (`/api/registry/…`) plan changes through it, and a refusal carries the
+  field to fix plus, when there is one, a working example. The CLI turns
+  that into its flag hint; the page highlights the input and offers the
+  example as a button.
+- **Repair** (`PATCH /api/registry/projects/:key`, and `pnpm radar move
+  <key> <path>`) points an entry at a moved checkout. For a GitHub identity,
+  the new checkout's origin must match, so a repair can't swap in a
+  different repository. It's offered from each row on the page, and
+  directly on an unavailable project's notice.
+- **Add** previews as you type (`dryRun`): it shows the key and identity
+  that would be used, and either can be overridden. **Suggestions** list
+  unregistered directories with a `.shipbench/config.json` next to
+  registered repositories. "Use" fills the add form; nothing is registered
+  without the Add click.
+- **Tab order** is dragged, or moved with arrow buttons, and saved as
+  `ui.order` beside the entries. `inTabOrder()` reads it leniently: keys it
+  names come first, everything else follows in registry order. Removing an
+  entry drops its key from `ui.order`.
+- **Remove** asks for confirmation and never touches the repository.
+- **Writes** re-read the registry file before planning, so a broken file
+  blocks them with a 409 until it's fixed. After writing, the API asks the
+  server to reload before it responds, so the page's next list is current.
+  That reload is the same one the file watcher triggers, so the server
+  still learns about changes only by re-reading the file.
+- **Last viewed project.** A visit with no hash, such as the launcher's `o`,
+  opens the project last viewed in that browser (`localStorage`), falling
+  back to the first available project.
+- **Verified** in Chromium on real Git checkouts:
+  - reordering with the arrows and by dragging reached the tab bar and
+    `ui.order`
+  - repair refused another repository's checkout, accepted the right one,
+    and cleared the tab's strike-through
+  - adding from a suggestion showed the preview and worked, including the
+    identity example for a checkout with no remote
+  - a folder that isn't a ShipBench project was refused in the preview
+  - remove asked for confirmation first
+  - repair from an unavailable project's notice loaded the board
+  - a bare URL opened the last viewed project
+  - the page was checked in both themes
 
 **Desktop launcher** (done 2026-09-24). Chosen over starting at login: a
 window you open when you want Radar fits the workflow better than a
@@ -498,7 +560,10 @@ background service, and it avoids the dev-port clash a service would bring.
   frontmatter. Ruled out in the spike: a committed reference resolvable only
   through an unversioned local registry would break the invariant that a
   repository's `.shipbench/` is self-contained.
-- Automatic project discovery. Registration is explicit.
+- Automatic project discovery. Registration is explicit. The Projects page
+  *suggests* ShipBench projects next to registered ones, but nothing is
+  registered without a click, and nothing outside registered repositories'
+  parent directories is scanned.
 - Anything Harbor is for. Harbor answers what is on `main` across projects
   through the GitHub API; Radar answers what is on disk right now.
 
@@ -555,6 +620,7 @@ The questions stay open because real use, not reasoning, should settle them.
 - What happens to a tab whose repository has moved or been deleted: how
   loudly, and whether the entry survives so it can be repaired rather than
   silently dropped. *v1: the entry survives, and its tab shows it as
-  unavailable and why.*
+  unavailable and why. Since the Projects page, it can be repaired in place,
+  and a GitHub identity must match the new checkout.*
 - Whether two worktrees of the same repository are one project or two.
   *v1: one. A second entry with the same identity is rejected.*

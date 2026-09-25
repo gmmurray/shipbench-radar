@@ -8,7 +8,10 @@ import { parseRegistry, type RegistryEntry } from './registry.ts';
 // validated by the same parser the server loads with, and lands by rename,
 // so a running Radar never reads a half-written file.
 
-type RawRegistry = Record<string, unknown> & { projects: unknown[] };
+export type RawRegistry = Record<string, unknown> & {
+  projects: Record<string, unknown>[];
+  ui: Record<string, unknown>;
+};
 
 async function readRaw(file: string): Promise<RawRegistry> {
   let raw: string;
@@ -21,10 +24,11 @@ async function readRaw(file: string): Promise<RawRegistry> {
     throw error;
   }
   parseRegistry(raw, file);
-  const data = JSON.parse(raw) as unknown;
-  if (!isObject(data) || !Array.isArray(data.projects)) {
+  const data = JSON.parse(raw) as Record<string, unknown>;
+  if (!Array.isArray(data.projects)) {
     throw new Error(`Unexpected registry shape in ${file}`);
   }
+  if (!isObject(data.ui)) data.ui = {};
   return data as RawRegistry;
 }
 
@@ -57,13 +61,30 @@ async function writeRaw(file: string, data: RawRegistry): Promise<void> {
   }
 }
 
+/**
+ * Read, change, validate, and write the registry in one step. `change`
+ * mutates the raw object; returning `false` skips the write.
+ */
+export async function editRegistry(
+  file: string,
+  change: (data: RawRegistry) => unknown,
+): Promise<void> {
+  const data = await readRaw(file);
+  if (change(data) === false) return;
+  await writeRaw(file, data);
+}
+
+function findIndex(data: RawRegistry, key: string): number {
+  return data.projects.findIndex(item => isObject(item) && item.key === key);
+}
+
 export async function addRegistryEntry(
   file: string,
   entry: RegistryEntry,
 ): Promise<void> {
-  const data = await readRaw(file);
-  data.projects.push({ key: entry.key, id: entry.id, path: entry.path });
-  await writeRaw(file, data);
+  await editRegistry(file, data => {
+    data.projects.push({ key: entry.key, id: entry.id, path: entry.path });
+  });
 }
 
 /** Remove the entry with `key`; returns it, or null if there was none. */
@@ -71,12 +92,40 @@ export async function removeRegistryEntry(
   file: string,
   key: string,
 ): Promise<RegistryEntry | null> {
-  const data = await readRaw(file);
-  const index = data.projects.findIndex(
-    item => isObject(item) && item.key === key,
-  );
-  if (index === -1) return null;
-  const [removed] = data.projects.splice(index, 1);
-  await writeRaw(file, data);
-  return removed as RegistryEntry;
+  let removed: RegistryEntry | null = null;
+  await editRegistry(file, data => {
+    const index = findIndex(data, key);
+    if (index === -1) return false;
+    removed = data.projects.splice(index, 1)[0] as unknown as RegistryEntry;
+    // A saved tab order shouldn't keep naming a project that's gone.
+    if (Array.isArray(data.ui.order)) {
+      data.ui.order = data.ui.order.filter(item => item !== key);
+    }
+    return true;
+  });
+  return removed;
+}
+
+/** Point an existing entry at a new path; other fields are untouched. */
+export async function setRegistryEntryPath(
+  file: string,
+  key: string,
+  path: string,
+): Promise<boolean> {
+  let found = false;
+  await editRegistry(file, data => {
+    const index = findIndex(data, key);
+    if (index === -1) return false;
+    data.projects[index]!.path = path;
+    found = true;
+    return true;
+  });
+  return found;
+}
+
+/** Save the tab order as `ui.order`, beside the entries (DESIGN.md). */
+export async function setTabOrder(file: string, keys: string[]): Promise<void> {
+  await editRegistry(file, data => {
+    data.ui.order = keys;
+  });
 }

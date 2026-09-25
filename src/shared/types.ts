@@ -16,6 +16,28 @@ export interface ProjectSummary {
   reason?: string;
 }
 
+/** A registry entry as the registry API reports it. */
+export interface EntryShape {
+  key: string;
+  id: string;
+  path: string;
+}
+
+/** An unregistered ShipBench project next to a registered one. */
+export interface ProjectSuggestion {
+  path: string;
+  name: string;
+}
+
+/** The body of a refused registry API request. */
+export interface RegistryApiError {
+  error: string;
+  /** The input to fix. */
+  field?: 'path' | 'key' | 'id';
+  /** A value that would work, when there's an obvious one. */
+  example?: string;
+}
+
 export interface ProjectList {
   /** Where the registry lives, so an empty list can say what to edit. */
   registryPath: string;

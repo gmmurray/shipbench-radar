@@ -193,6 +193,31 @@ describe('list and remove', () => {
   });
 });
 
+describe('move', () => {
+  it('repoints an entry at a checkout of the same repository only', async () => {
+    const first = await makeRepo('old/m', {
+      remote: 'git@github.com:me/m.git',
+    });
+    const other = await makeRepo('other', {
+      remote: 'git@github.com:me/other.git',
+    });
+    const second = await makeRepo('new/m', {
+      remote: 'https://github.com/me/m.git',
+    });
+    await cli('add', first);
+
+    expect(await cli('move', 'm', other)).toBe(1);
+    expect(err.join('\n')).toMatch(
+      /is github\.com\/me\/other, not github\.com\/me\/m/,
+    );
+
+    expect(await cli('move', 'm', 'new/m')).toBe(0);
+    expect(await entries()).toEqual([
+      { key: 'm', id: 'github.com/me/m', path: second },
+    ]);
+  });
+});
+
 describe('registry round trip', () => {
   it('preserves ui and unknown fields across add and remove', async () => {
     const existing = await makeRepo('kept');

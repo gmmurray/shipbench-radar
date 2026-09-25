@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { basename } from 'node:path';
 import { promisify } from 'node:util';
 import { parseGithubRemoteUrl } from '@shipbench/core';
-import { KEY_PATTERN } from '../server/registry.ts';
+import { KEY_PATTERN } from './registry.ts';
 
 const run = promisify(execFile);
 

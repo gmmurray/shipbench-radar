@@ -19,7 +19,8 @@ pnpm start        # build, then serve everything on http://127.0.0.1:4747
 pnpm console      # quiet build, then serve with single-key commands (o/q/h)
 pnpm shortcut     # desktop shortcut to scripts\radar.cmd, which runs `console`
 pnpm radar add <path> [--key k] [--id id]   # register a project
-pnpm radar list                             # entries and availability
+pnpm radar move <key> <path>                # repair a moved repository
+pnpm radar list                             # entries (tab order) and availability
 pnpm radar remove <key>                     # unregister (repo untouched)
 pnpm typecheck    # server/CLI config, then src/web/tsconfig.json
 pnpm lint         # Biome
@@ -60,6 +61,11 @@ the real parser.
   pnpm runs scripts from the package directory.
 - `src/shared/` — type-only declarations used by both the server and the web
   app (e.g. the `/api/projects` response). No runtime imports.
+- `src/server/registration.ts` — the rules for adding and repairing
+  entries, shared by the CLI and the registry API (`registryApi.ts`). Change
+  a rule there, never in only one caller.
+- `src/web/ProjectsPage.tsx` — the Projects page (`#/_projects`): tab order,
+  repair, remove, add with preview and suggestions.
 - `src/web/` — the React app, bundled by Vite, with its own
   `tsconfig.json`. Import only types from the `@shipbench/core` barrel here.
   Its adapters import `node:fs` and break the browser build, and Biome
@@ -105,10 +111,14 @@ record it under "Pending upstream" in DESIGN.md if Radar depends on it.
   `Host`/`Origin` or a non-JSON write (DESIGN.md, "The local server").
 - Registry entries are declarations; derived data goes in a separate,
   deletable cache file. UI preferences sit beside entries, not inside them.
-- Registry writes go through `src/server/registryFile.ts`: edit the raw JSON
-  (never re-serialize the parsed form, which drops unknown fields), validate
-  with `parseRegistry`, and land by rename. The running server reconciles
-  from the file; nothing tells it directly.
+- Registry writes go through `src/server/registryFile.ts` (`editRegistry`):
+  edit the raw JSON (never re-serialize the parsed form, which drops unknown
+  fields), validate with `parseRegistry`, and land by rename. The server
+  learns about changes only by re-reading the file. Its watcher does that,
+  and the registry API triggers the same reload after its own writes so its
+  response is current.
+- Tab order lives in `ui.order` and is applied by `inTabOrder()`. Anything
+  that lists projects to the user uses it, not raw registry order.
 - Tests that need a live server use `startRadar({ port: 0, ... })` and the
   helpers in `src/server/testSupport.ts`.
 

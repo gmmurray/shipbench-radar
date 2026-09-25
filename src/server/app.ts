@@ -4,21 +4,20 @@ import type { EventHub } from './events.ts';
 import { coreErrorStatus, sendError, sendJson } from './http.ts';
 import { handleProjectApi } from './projectApi.ts';
 import { inspectProject, type Project } from './projects.ts';
+import { handleRegistryApi, type RegistryControls } from './registryApi.ts';
 import { checkRequest } from './security.ts';
 import { serveStatic } from './static.ts';
 
 export interface RadarAppOptions {
-  /** Current projects. The caller may replace entries between requests. */
+  /** Current projects, in tab order. The caller may replace entries between requests. */
   projects: Map<string, Project>;
   events: EventHub;
-  /** Why the latest registry.json couldn't be loaded, if it couldn't. */
-  getRegistryProblem?: () => string | null;
+  registry: RegistryControls;
   /** The port actually bound; the Host and Origin checks depend on it. */
   port: number;
   /** Extra allowed origins; in dev, Vite's. */
   extraOrigins?: readonly string[];
   webDir: string;
-  registryPath: string;
   /** Receives non-fatal project read warnings. */
   warn?: (line: string) => void;
 }
@@ -59,14 +58,24 @@ export function createRadarHandler(
         return;
       }
       const body: ProjectList = {
-        registryPath: options.registryPath,
+        registryPath: options.registry.path,
         projects: await Promise.all(
           [...options.projects.values()].map(summarize),
         ),
       };
-      const problem = options.getRegistryProblem?.();
+      const problem = options.registry.problem();
       if (problem) body.registryProblem = problem;
       sendJson(res, 200, body);
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/registry/')) {
+      await handleRegistryApi(
+        req,
+        res,
+        url.pathname.slice('/api/registry'.length),
+        options.registry,
+      );
       return;
     }
 
