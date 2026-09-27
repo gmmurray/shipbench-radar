@@ -1,7 +1,8 @@
 # Radar — design notes
 
 Status: v1 (M0–M3) done 2026-09-23; launcher and Projects page done
-2026-09-24 (see "After v1"). Written 2026-09-21 against
+2026-09-24 (see "After v1"); on ShipBench 0.5.0 since 2026-09-27. Written
+2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
 version-skew, and local-server sections.
@@ -17,9 +18,10 @@ switched by tab. Each registered repository keeps its own `.shipbench/`
 directory and remains independently usable; Radar is one more client for
 boards that already exist, in the same sense that the CLI and Harbor are.
 
-It is a private tool. It is not distributed, not published, and not built for
-a general audience. That is deliberate and is the reason it can be shaped
-around one developer's actual working habits instead of a hypothetical user's.
+It is a personal tool. The source is public, but Radar isn't packaged,
+published to npm, or supported for anyone else, and it isn't built for a
+general audience. That is deliberate, and it is why Radar can be shaped around
+one developer's actual working habits instead of a hypothetical user's.
 
 ## The friction it answers
 
@@ -41,8 +43,8 @@ arguments, tracked in the ShipBench repository's local-workbench spike.
 
 Two reasons, both load-bearing.
 
-It is customized for one person, so keeping it private removes any obligation
-to generalize a decision before there is evidence for it.
+It is customized for one person, so keeping it out of ShipBench removes any
+obligation to generalize a decision before there is evidence for it.
 
 It also becomes the second external consumer of `@shipbench/core` and
 `@shipbench/board` after Harbor. An export that only resolves through a
@@ -95,7 +97,7 @@ switching costs a click with no port, no child process, and no cold start.
 
 ## What the published packages already provide
 
-Verified against the ShipBench repository at 0.4.0:
+Verified against the ShipBench repository at 0.4.0, and still true at 0.5.0:
 
 - `createBoardRequestHandler(adapter, bundleDir, warn)` in the CLI holds no
   module-global state, so N boards in one process needs no contortion. It is
@@ -116,6 +118,24 @@ Verified against the ShipBench repository at 0.4.0:
   60-second poll. Radar implements the method.
 - Board state is per instance. Each `createBoard` builds its own zustand store
   inside `BoardStoreProvider`, so two boards never share selection or data.
+
+What 0.5.0 changed for Radar (upgraded 2026-09-27):
+
+- **Task slugs are confined to the tasks directory.** Core 0.4.0 pasted the
+  slug into the path, so a request like
+  `DELETE /api/projects/x/tasks/..%2F..%2FREADME` deleted that repository's
+  README. Radar's request checks meant only its own page or a local process
+  could send one, and a local process could delete the file anyway, but the
+  route passed URL slugs straight through. Core now rejects them with
+  `Invalid task slug`, which Radar answers with 400. `app.test.ts` covers
+  it, and the test fails on 0.4.0.
+- **Unreadable task files are surfaced, not dropped.** `listTasks` returns
+  an `unreadable` array, which Radar passes through untouched, and the board
+  shows those files in an Unreadable column. Writes to one throw
+  `UnreadableTaskError`, which Radar answers with 422, as the CLI does.
+- The key-listener and board-sizing fixes are not in 0.5.0 (see "Pending
+  upstream"). The layout overrides were re-checked in a browser against
+  0.5.0 and needed no change.
 
 One constraint that rules out a cheaper design: the shipped standalone bundle
 hardcodes root-absolute `/api/...` paths. The hardcoding lives only in
@@ -426,8 +446,9 @@ Done 2026-09-23. As built:
   its rules from `radar.css` by `--radar-tabs-h`: root `min-height`, header
   `top`, canvas and kanban `min-height`, and the detail sidebar's `top` and
   `max-height`. The board's rules sit in `@layer utilities` and Radar's are
-  unlayered, so Radar's win outright. These overrides depend on board 0.4.0's
-  class names, so re-check them on every board upgrade. The durable fix is
+  unlayered, so Radar's win outright. These overrides depend on the board's
+  class names (checked at 0.4.0 and 0.5.0), so re-check them on every board
+  upgrade. The durable fix is
   upstream (see "Pending upstream").
 - Theme: no `data-theme` on `<html>`, so the board follows the OS setting.
   A toggle can come later.
@@ -551,7 +572,8 @@ background service, and it avoids the dev-port clash a service would bring.
 
 ## Non-goals
 
-- Distribution, publishing, or a general audience.
+- Packaging, npm publishing, support, or a general audience. The source
+  being public doesn't change this.
 - Storing tasks. Every board's tasks stay in its repository.
 - Merging boards into one view, or reconciling differing column sets.
 - Cross-project search, or any cross-project index. A separate question with
@@ -582,7 +604,7 @@ background service, and it avoids the dev-port clash a service would bring.
    through its normal process as they come up, and track any that affect
    Radar under "Pending upstream".
 4. **Nothing about the interface.** Tab design, layout, and personal tuning
-   stay here. That is the point of building it privately.
+   stay here. That is the point of building it separately.
 
 ## Pending upstream
 
@@ -592,9 +614,9 @@ Filed in ShipBench 2026-09-23. None of these blocks building Radar.
   release). Until it ships, Radar unmounts inactive boards. Once it does,
   switch to keeping every board mounted and hiding inactive ones (see
   "Mounting").
-- **CLI board server `Host`/`Origin` checks.** Radar doesn't use the CLI
-  server, so nothing changes here. Radar's own server has these checks from
-  the start (see "The local server").
+- **CLI board server `Host`/`Origin` checks.** Shipped in `shipbench` 0.5.0.
+  Radar never used the CLI server and has had these checks from the start
+  (see "The local server").
 - **Let hosts size the board** (found in M2; needs an `@shipbench/board`
   release). The board assumes it owns the viewport:
   `min-h-screen` on its root, a `top-0` sticky header, and `100vh` in five

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { ArchiveBlockedError } from '@shipbench/core';
+import { ArchiveBlockedError, UnreadableTaskError } from '@shipbench/core';
 
 // Response and body helpers, mirrored from the CLI's boardServer.ts so the
 // board sees the same status codes and error bodies from either host.
@@ -53,6 +53,9 @@ function isValidationError(error: unknown): boolean {
 }
 
 export function coreErrorStatus(error: unknown): number {
+  // A task file whose frontmatter doesn't parse: the board shows it
+  // read-only, and writes to it are refused.
+  if (error instanceof UnreadableTaskError) return 422;
   if (isNotFoundError(error)) return 404;
   if (error instanceof ArchiveBlockedError) return 409;
   if (isValidationError(error)) return 400;

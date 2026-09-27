@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FsAdapter, initProject } from '@shipbench/core';
@@ -198,6 +205,49 @@ describe('project API', () => {
       body: '{not json',
     });
     expect(malformed.status).toBe(400);
+  });
+
+  it('refuses task slugs that climb out of the tasks directory', async () => {
+    // Core 0.4.0 pasted the slug into the path, so `..%2F..%2FREADME` reached
+    // the repository's README. Core 0.5.0 rejects it before touching disk.
+    const readme = join(alphaPath, 'README.md');
+    await writeFile(readme, '# Alpha\n');
+
+    const del = await sendJsonBody(
+      'DELETE',
+      '/api/projects/alpha/tasks/..%2F..%2FREADME',
+    );
+    expect(del.status).toBe(400);
+    expect(del.body).toMatch(/Invalid task slug/);
+
+    const unarchive = await sendJsonBody(
+      'POST',
+      '/api/projects/alpha/tasks/..%2F..%2F..%2FREADME/unarchive',
+    );
+    expect(unarchive.status).toBe(400);
+
+    expect(await readFile(readme, 'utf-8')).toBe('# Alpha\n');
+  });
+
+  it('lists an unreadable task file and refuses writes to it', async () => {
+    await writeFile(
+      join(alphaPath, '.shipbench', 'tasks', 'broken.md'),
+      '---\ntitle: Broken\ntitle: Twice\nstatus: todo\n---\n',
+    );
+
+    const listed = JSON.parse(
+      (await send('GET', '/api/projects/alpha/tasks')).body,
+    ) as { unreadable: { slug: string }[] };
+    expect(listed.unreadable.map(file => file.slug)).toContain('broken');
+
+    const write = await sendJsonBody(
+      'PATCH',
+      '/api/projects/alpha/tasks/broken',
+      {
+        fields: { title: 'Fixed' },
+      },
+    );
+    expect(write.status).toBe(422);
   });
 
   it('refuses unavailable and unknown projects', async () => {

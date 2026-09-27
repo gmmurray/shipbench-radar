@@ -1,8 +1,10 @@
 # CLAUDE.md
 
-Radar is a private, local app that shows several ShipBench boards in one
+Radar is a personal, local app that shows several ShipBench boards in one
 browser window, one tab per registered repository. It is built for one
-developer and is not distributed.
+developer. The repository is public, but Radar is not packaged, published,
+or supported. Don't commit anything machine-specific beyond the sample
+paths already in the docs: no real registry, and no scratch or test output.
 
 [DESIGN.md](DESIGN.md) is the source of truth for scope, decisions, and the
 build order. Its "v1 plan" section lists the milestones (M0–M3) with
