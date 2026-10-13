@@ -43,6 +43,22 @@ export function emptyRegistry(): Registry {
 }
 
 /**
+ * Keys of registered projects hidden from the tab bar (`ui.hidden`). Hiding
+ * is a display preference: the entry stays registered and watched. Read
+ * leniently, like `ui.order`.
+ */
+export function hiddenKeys(registry: Registry): Set<string> {
+  const hidden = registry.ui.hidden;
+  if (!Array.isArray(hidden)) return new Set();
+  const known = new Set(registry.projects.map(entry => entry.key));
+  return new Set(
+    hidden.filter(
+      (key): key is string => typeof key === 'string' && known.has(key),
+    ),
+  );
+}
+
+/**
  * Entries in tab order. `ui.order` lists keys; keys it names come first, in
  * its order, then everything it doesn't mention, in registry order. Read
  * leniently: `ui` is preference, so a malformed or stale order degrades to

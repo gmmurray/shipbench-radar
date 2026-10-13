@@ -6,10 +6,16 @@ import {
   planRepair,
   RegistrationError,
 } from '../server/registration.ts';
-import { inTabOrder, loadRegistry, RegistryError } from '../server/registry.ts';
+import {
+  hiddenKeys,
+  inTabOrder,
+  loadRegistry,
+  RegistryError,
+} from '../server/registry.ts';
 import {
   addRegistryEntry,
   removeRegistryEntry,
+  setProjectHidden,
   setRegistryEntryPath,
 } from '../server/registryFile.ts';
 
@@ -38,8 +44,11 @@ Commands:
       Point a project at its new location after the repository moved. A
       GitHub identity must match the new checkout's origin.
   list
-      Show every registered project, in tab order, and whether it is
-      available.
+      Show every registered project, in tab order, whether it is
+      available, and whether its tab is hidden.
+  show <key> | hide <key>
+      Show or hide a project's tab. A hidden project stays registered and
+      watched, and reopens from the tab bar's Projects menu.
   remove <key>
       Unregister a project. Its repository is not touched.`;
 
@@ -109,11 +118,13 @@ async function list(args: string[], context: CliContext): Promise<void> {
   }
 
   const entries = inTabOrder(registry);
+  const hidden = hiddenKeys(registry);
   const width = Math.max(...entries.map(p => p.key.length));
   for (const entry of entries) {
     const status = await inspectProject(openProject(entry));
     const mark = status.available ? 'ok     ' : 'missing';
-    context.out(`  ${entry.key.padEnd(width)}  ${mark}  ${entry.id}`);
+    const tab = hidden.has(entry.key) ? '  (hidden)' : '';
+    context.out(`  ${entry.key.padEnd(width)}  ${mark}  ${entry.id}${tab}`);
     context.out(`  ${' '.repeat(width)}           ${entry.path}`);
     if (!status.available) {
       context.out(`  ${' '.repeat(width)}           ${status.reason}`);
@@ -136,6 +147,28 @@ async function remove(args: string[], context: CliContext): Promise<void> {
   context.out(`Removed "${key}" (${removed.id}). Its repository is untouched.`);
 }
 
+async function setHidden(
+  args: string[],
+  context: CliContext,
+  hidden: boolean,
+): Promise<void> {
+  const command = hidden ? 'hide' : 'show';
+  if (args.length !== 1) {
+    throw new CliError(`${command} takes one key.\n\n${USAGE}`);
+  }
+  const key = args[0]!;
+  if (!(await setProjectHidden(context.registryPath, key, hidden))) {
+    const registry = await loadRegistry(context.registryPath);
+    const keys = registry.projects.map(p => p.key).join(', ') || 'none';
+    throw new CliError(`No project "${key}". Registered keys: ${keys}.`);
+  }
+  context.out(
+    hidden
+      ? `Hid "${key}". It stays registered; reopen it from the Projects menu or with: pnpm radar show ${key}`
+      : `Showing "${key}" in the tab bar.`,
+  );
+}
+
 /** Run one CLI invocation; returns the process exit code. */
 export async function runCli(
   argv: string[],
@@ -155,6 +188,10 @@ export async function runCli(
         return 0;
       case 'remove':
         await remove(rest, context);
+        return 0;
+      case 'show':
+      case 'hide':
+        await setHidden(rest, context, command === 'hide');
         return 0;
       case undefined:
       case 'help':

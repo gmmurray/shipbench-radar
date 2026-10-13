@@ -218,6 +218,26 @@ describe('move', () => {
   });
 });
 
+describe('show and hide', () => {
+  it('hides a tab, lists it as hidden, and shows it again', async () => {
+    const path = await makeRepo('h', { remote: 'git@github.com:me/h.git' });
+    await cli('add', path);
+
+    expect(await cli('hide', 'h')).toBe(0);
+    out = [];
+    await cli('list');
+    expect(out.join('\n')).toMatch(/h\s+ok\s+github\.com\/me\/h\s+\(hidden\)/);
+
+    expect(await cli('show', 'h')).toBe(0);
+    out = [];
+    await cli('list');
+    expect(out.join('\n')).not.toMatch(/hidden/);
+
+    expect(await cli('hide', 'nope')).toBe(1);
+    expect(err.join('\n')).toMatch(/Registered keys: h\./);
+  });
+});
+
 describe('registry round trip', () => {
   it('preserves ui and unknown fields across add and remove', async () => {
     const existing = await makeRepo('kept');

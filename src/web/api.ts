@@ -102,6 +102,11 @@ export const registryApi = {
     ),
   setOrder: (order: string[]) =>
     request<void>('/api/registry/order', write('PUT', { order })),
+  setHidden: (key: string, hidden: boolean) =>
+    request<void>(
+      `/api/registry/projects/${encodeURIComponent(key)}/hidden`,
+      write('PUT', { hidden }),
+    ),
 };
 
 export function createProjectApi(key: string): BoardAPI {

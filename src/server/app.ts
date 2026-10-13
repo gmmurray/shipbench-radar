@@ -4,6 +4,7 @@ import type { EventHub } from './events.ts';
 import { coreErrorStatus, sendError, sendJson } from './http.ts';
 import { handleProjectApi } from './projectApi.ts';
 import { inspectProject, type Project } from './projects.ts';
+import { hiddenKeys } from './registry.ts';
 import { handleRegistryApi, type RegistryControls } from './registryApi.ts';
 import { checkRequest } from './security.ts';
 import { serveStatic } from './static.ts';
@@ -24,12 +25,16 @@ export interface RadarAppOptions {
 
 const PROJECT_ROUTE = /^\/api\/projects\/([^/]+)(\/.*)?$/;
 
-async function summarize(project: Project): Promise<ProjectSummary> {
+async function summarize(
+  project: Project,
+  hidden: Set<string>,
+): Promise<ProjectSummary> {
   const { key, id, path } = project.entry;
+  const base = { key, id, path, hidden: hidden.has(key) };
   const status = await inspectProject(project);
   return status.available
-    ? { key, id, path, name: status.config.name, available: true }
-    : { key, id, path, name: null, available: false, reason: status.reason };
+    ? { ...base, name: status.config.name, available: true }
+    : { ...base, name: null, available: false, reason: status.reason };
 }
 
 export function createRadarHandler(
@@ -57,10 +62,13 @@ export function createRadarHandler(
         sendError(res, 404, 'Not found');
         return;
       }
+      const hidden = hiddenKeys(options.registry.current());
       const body: ProjectList = {
         registryPath: options.registry.path,
         projects: await Promise.all(
-          [...options.projects.values()].map(summarize),
+          [...options.projects.values()].map(project =>
+            summarize(project, hidden),
+          ),
         ),
       };
       const problem = options.registry.problem();

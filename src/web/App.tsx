@@ -10,7 +10,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { ProjectList, ProjectSummary } from '../shared/types.ts';
-import { createProjectApi, listProjects } from './api.ts';
+import { createProjectApi, listProjects, registryApi } from './api.ts';
 import {
   subscribeToProjectChanges,
   subscribeToRegistryChanges,
@@ -44,6 +44,9 @@ function hrefFor(key: string): string {
   return `#/${encodeURIComponent(key)}`;
 }
 
+/** How long the "Hidden · Undo" message stays up after closing a tab. */
+const UNDO_MS = 6000;
+
 // The last project on screen, for a visit with no hash (the launcher's `o`
 // opens the bare URL). A per-browser convenience, so browser storage; it may
 // be unavailable, and then Radar just starts on the first project.
@@ -66,19 +69,20 @@ function rememberProject(key: string): void {
 }
 
 /**
- * The project the hash names. Without a hash: the last one viewed in this
- * browser, else the first available, else the first.
+ * The project the hash names, shown or hidden: asking for a hidden project
+ * by name opens it (and App then restores its tab). Without a hash: the last
+ * one viewed in this browser if its tab is shown, else the first available
+ * shown project, else the first shown.
  */
 function pickProject(
   projects: ProjectSummary[],
   hashKey: string | null,
 ): ProjectSummary | undefined {
   if (hashKey) return projects.find(p => p.key === hashKey);
+  const shown = projects.filter(p => !p.hidden);
   const last = readLastProject();
   return (
-    projects.find(p => p.key === last) ??
-    projects.find(p => p.available) ??
-    projects[0]
+    shown.find(p => p.key === last) ?? shown.find(p => p.available) ?? shown[0]
   );
 }
 
@@ -156,6 +160,54 @@ export function App() {
     });
   }, [activeKey]);
 
+  // A link to a hidden project (a bookmark, a pinned tab, the Projects menu)
+  // opens it and restores its tab: asking for it by name means it's wanted.
+  const unhiding = useRef<string | null>(null);
+  useEffect(() => {
+    if (!active?.hidden || unhiding.current === active.key) return;
+    unhiding.current = active.key;
+    // Restored another way, so its "Hid … · Undo" message is moot.
+    const restored = active.key;
+    setUndo(previous => (previous?.key === restored ? null : previous));
+    registryApi
+      .setHidden(active.key, false)
+      .then(refresh, () => undefined)
+      .finally(() => {
+        unhiding.current = null;
+      });
+  }, [active?.key, active?.hidden, refresh]);
+
+  // Hiding a tab: leave it if it's open, then hide it, with a brief undo.
+  const [undo, setUndo] = useState<{ key: string; label: string } | null>(null);
+  const hideProject = useCallback(
+    (key: string) => {
+      const shown = projects.filter(p => !p.hidden);
+      const project = shown.find(p => p.key === key);
+      if (!project) return;
+      if (key === activeKey) {
+        const index = shown.indexOf(project);
+        const neighbour = shown[index + 1] ?? shown[index - 1];
+        window.location.hash = neighbour
+          ? hrefFor(neighbour.key)
+          : PROJECTS_HREF;
+      }
+      registryApi.setHidden(key, true).then(refresh, () => undefined);
+      setUndo({ key, label: project.name ?? project.key });
+    },
+    [projects, activeKey, refresh],
+  );
+  const undoHide = useCallback(() => {
+    if (!undo) return;
+    // Opening it by name restores the tab (see the effect above).
+    window.location.hash = hrefFor(undo.key);
+    setUndo(null);
+  }, [undo]);
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [undo]);
+
   // Boards stay mounted once opened, and inactive ones are hidden rather than
   // unmounted, so switching back is instant and keeps the open task, search,
   // and scroll. The board (0.6.0+) sends keyboard shortcuts only to the
@@ -170,12 +222,16 @@ export function App() {
     }
   }, [boardKey]);
   // Include the active board on the render that first shows it, not one
-  // render later, and drop any board whose project was removed or became
-  // unavailable.
+  // render later, and drop any board whose project was removed, became
+  // unavailable, or had its tab hidden.
   const mountedBoards = [
     ...opened,
     ...(boardKey && !opened.includes(boardKey) ? [boardKey] : []),
-  ].filter(key => projects.some(p => p.key === key && p.available));
+  ].filter(key =>
+    projects.some(
+      p => p.key === key && p.available && (!p.hidden || p.key === boardKey),
+    ),
+  );
 
   // The page scroll is shared by every board, so remember it per view.
   const viewKey = boardKey ?? `view:${hashKey ?? ''}`;
@@ -241,6 +297,7 @@ export function App() {
         activeKey={activeKey}
         onProjectsPage={onProjectsPage}
         unread={unread}
+        onHide={hideProject}
       />
       {problem}
       <div className="radar-board">
@@ -251,7 +308,23 @@ export function App() {
         ))}
         {content}
       </div>
+      {undo ? (
+        <div className="radar-toast" role="status">
+          Hid <strong>{undo.label}</strong>
+          <button type="button" className="radar-button" onClick={undoHide}>
+            Undo
+          </button>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function ChangeDot() {
+  return (
+    <span className="radar-tab-dot">
+      <span className="radar-visually-hidden"> (changed)</span>
+    </span>
   );
 }
 
@@ -260,55 +333,150 @@ function TabBar({
   activeKey,
   onProjectsPage,
   unread,
+  onHide,
 }: {
   projects: ProjectSummary[];
   activeKey: string | null;
   onProjectsPage: boolean;
   unread: ReadonlySet<string>;
+  onHide: (key: string) => void;
 }) {
+  const shown = projects.filter(p => !p.hidden);
+  const hidden = projects.filter(p => p.hidden);
   return (
     <nav className="radar-tabs" aria-label="Projects">
       <span className="radar-tabs-mark" aria-hidden>
         Radar
       </span>
       <div className="radar-tabs-list">
-        {projects.map(project => {
-          const isActive = project.key === activeKey;
-          const isUnread = unread.has(project.key);
+        {shown.map(project => {
+          const label = project.name ?? project.key;
           return (
-            <a
-              key={project.key}
-              href={hrefFor(project.key)}
-              className="radar-tab"
-              aria-current={isActive ? 'page' : undefined}
-              data-unavailable={project.available ? undefined : ''}
-              title={
-                project.available
-                  ? `${project.id}\n${project.path}`
-                  : `Unavailable: ${project.reason}`
-              }
-            >
-              <span className="radar-tab-label">
-                {project.name ?? project.key}
-              </span>
-              {isUnread ? (
-                <span className="radar-tab-dot">
-                  <span className="radar-visually-hidden"> (changed)</span>
-                </span>
-              ) : null}
-            </a>
+            <div key={project.key} className="radar-tab-wrap">
+              <a
+                href={hrefFor(project.key)}
+                className="radar-tab"
+                aria-current={project.key === activeKey ? 'page' : undefined}
+                data-unavailable={project.available ? undefined : ''}
+                title={
+                  project.available
+                    ? `${project.id}\n${project.path}`
+                    : `Unavailable: ${project.reason}`
+                }
+              >
+                <span className="radar-tab-label">{label}</span>
+                {unread.has(project.key) ? <ChangeDot /> : null}
+              </a>
+              <button
+                type="button"
+                className="radar-tab-close"
+                aria-label={`Hide ${label}`}
+                title="Hide this tab (the project stays registered)"
+                onClick={() => onHide(project.key)}
+              >
+                ×
+              </button>
+            </div>
           );
         })}
       </div>
-      <a
-        href={PROJECTS_HREF}
+      <ProjectsMenu
+        hidden={hidden}
+        unread={unread}
+        onProjectsPage={onProjectsPage}
+      />
+    </nav>
+  );
+}
+
+/**
+ * The end of the tab bar: reopen a hidden project, or go to the Projects
+ * page. Hidden projects that changed carry the same dot a tab would.
+ */
+function ProjectsMenu({
+  hidden,
+  unread,
+  onProjectsPage,
+}: {
+  hidden: ProjectSummary[];
+  unread: ReadonlySet<string>;
+  onProjectsPage: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const anyUnread = hidden.some(p => unread.has(p.key));
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    // Escape closes the menu and goes no further. Capturing on document runs
+    // before the visible board's own Escape listener on window, which would
+    // otherwise also close its open task.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', onEscape, true);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', onEscape, true);
+    };
+  }, [open]);
+
+  return (
+    <div ref={menuRef} className="radar-menu">
+      <button
+        type="button"
         className="radar-tab radar-tab-manage"
+        aria-expanded={open}
+        aria-haspopup="menu"
         aria-current={onProjectsPage ? 'page' : undefined}
-        title="Add, reorder, repair, or remove projects"
+        onClick={() => setOpen(!open)}
       >
         <span aria-hidden>+</span> Projects
-      </a>
-    </nav>
+        {hidden.length > 0 ? (
+          <span className="radar-menu-count">{hidden.length}</span>
+        ) : null}
+        {anyUnread ? <ChangeDot /> : null}
+      </button>
+      {open ? (
+        <div className="radar-menu-panel" role="menu">
+          {hidden.length === 0 ? (
+            <p className="radar-menu-empty">No hidden projects.</p>
+          ) : (
+            <>
+              <p className="radar-menu-heading">Hidden projects</p>
+              {hidden.map(project => (
+                <a
+                  key={project.key}
+                  role="menuitem"
+                  href={hrefFor(project.key)}
+                  className="radar-menu-item"
+                  onClick={() => setOpen(false)}
+                >
+                  <span className="radar-tab-label">
+                    {project.name ?? project.key}
+                  </span>
+                  {unread.has(project.key) ? <ChangeDot /> : null}
+                </a>
+              ))}
+            </>
+          )}
+          <a
+            role="menuitem"
+            href={PROJECTS_HREF}
+            className="radar-menu-item radar-menu-manage"
+            onClick={() => setOpen(false)}
+          >
+            Manage projects…
+          </a>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

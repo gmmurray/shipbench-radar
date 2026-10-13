@@ -12,5 +12,8 @@
       "path": "Q:\\code\\personal\\scratch"
     }
   ],
-  "ui": {}
+  "ui": {
+    "order": ["shipbench", "scratch"],
+    "hidden": ["scratch"]
+  }
 }

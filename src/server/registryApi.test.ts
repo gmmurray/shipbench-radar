@@ -227,3 +227,44 @@ describe('registry API', () => {
     expect(await readFile(registryPath, 'utf-8')).toBe(before);
   });
 });
+
+describe('hiding tabs', () => {
+  const hidden = async () =>
+    (JSON.parse(await readFile(registryPath, 'utf-8')).ui.hidden ??
+      []) as string[];
+
+  it('hides and shows a tab without unregistering the project', async () => {
+    expect(
+      (await call('PUT', '/projects/gamma/hidden', { hidden: true })).status,
+    ).toBe(204);
+    const gamma = (await projects()).find(p => p.key === 'gamma');
+    expect(gamma).toMatchObject({ hidden: true, available: true });
+    expect(await hidden()).toEqual(['gamma']);
+    // Still served: hiding is display only.
+    expect(
+      (await send(radar.port, 'GET', '/api/projects/gamma/tasks')).status,
+    ).toBe(200);
+
+    expect(
+      (await call('PUT', '/projects/gamma/hidden', { hidden: false })).status,
+    ).toBe(204);
+    expect((await projects()).find(p => p.key === 'gamma')?.hidden).toBe(false);
+    expect(await hidden()).toEqual([]);
+  });
+
+  it('rejects a non-boolean and an unknown key', async () => {
+    expect(
+      (await call('PUT', '/projects/gamma/hidden', { hidden: 'yes' })).status,
+    ).toBe(400);
+    expect(
+      (await call('PUT', '/projects/nope/hidden', { hidden: true })).status,
+    ).toBe(404);
+  });
+
+  it('drops a removed project from ui.hidden', async () => {
+    await call('PUT', '/projects/loose-notes/hidden', { hidden: true });
+    expect(await hidden()).toEqual(['loose-notes']);
+    expect((await call('DELETE', '/projects/loose-notes')).status).toBe(204);
+    expect(await hidden()).toEqual([]);
+  });
+});

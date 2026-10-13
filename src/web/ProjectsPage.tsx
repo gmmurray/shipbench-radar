@@ -40,6 +40,8 @@ export function ProjectsPage({
 }) {
   const [addPath, setAddPath] = useState('');
   const pathInput = useRef<HTMLInputElement>(null);
+  const shown = list.projects.filter(p => !p.hidden);
+  const hidden = list.projects.filter(p => p.hidden);
 
   useEffect(() => {
     const previous = document.title;
@@ -67,10 +69,37 @@ export function ProjectsPage({
         <h2>Tabs</h2>
         {list.projects.length === 0 ? (
           <p className="radar-hint">No projects registered yet.</p>
+        ) : shown.length === 0 ? (
+          <p className="radar-hint">
+            Every project is hidden. Show one below to give it a tab.
+          </p>
         ) : (
-          <ProjectRows projects={list.projects} refresh={refresh} />
+          <ProjectRows
+            projects={shown}
+            hiddenKeys={hidden.map(p => p.key)}
+            refresh={refresh}
+          />
         )}
       </section>
+
+      {hidden.length > 0 ? (
+        <section className="radar-section">
+          <h2>Hidden</h2>
+          <p className="radar-hint">
+            Registered and still watched, but without a tab. Show one here, or
+            reopen it from the tab bar's Projects menu.
+          </p>
+          <ul className="radar-rows">
+            {hidden.map(project => (
+              <ProjectRow
+                key={project.key}
+                project={project}
+                refresh={refresh}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="radar-section">
         <h2>Add a project</h2>
@@ -93,9 +122,13 @@ export function ProjectsPage({
 
 function ProjectRows({
   projects,
+  hiddenKeys,
   refresh,
 }: {
+  /** The shown projects, in tab order. */
   projects: ProjectSummary[];
+  /** Hidden projects keep their place in `ui.order`, after the shown ones. */
+  hiddenKeys: string[];
   refresh: () => void;
 }) {
   const serverOrder = projects.map(p => p.key);
@@ -115,7 +148,7 @@ function ProjectRows({
     setOrder(next);
     setError(null);
     try {
-      await registryApi.setOrder(next);
+      await registryApi.setOrder([...next, ...hiddenKeys]);
       refresh();
     } catch (err) {
       setError(messageOf(err));
@@ -159,13 +192,15 @@ function ProjectRows({
             <ProjectRow
               key={key}
               project={project}
-              first={index === 0}
-              last={index === order.length - 1}
-              dragging={dragKey === key}
-              onMove={delta => moveBy(key, delta)}
-              onDragStart={() => setDragKey(key)}
-              onDragEnd={() => setDragKey(null)}
-              onDrop={() => dropOn(key)}
+              reorder={{
+                first: index === 0,
+                last: index === order.length - 1,
+                dragging: dragKey === key,
+                onMove: delta => moveBy(key, delta),
+                onDragStart: () => setDragKey(key),
+                onDragEnd: () => setDragKey(null),
+                onDrop: () => dropOn(key),
+              }}
               refresh={refresh}
             />
           );
@@ -175,18 +210,7 @@ function ProjectRows({
   );
 }
 
-function ProjectRow({
-  project,
-  first,
-  last,
-  dragging,
-  onMove,
-  onDragStart,
-  onDragEnd,
-  onDrop,
-  refresh,
-}: {
-  project: ProjectSummary;
+interface ReorderControls {
   first: boolean;
   last: boolean;
   dragging: boolean;
@@ -194,35 +218,62 @@ function ProjectRow({
   onDragStart: () => void;
   onDragEnd: () => void;
   onDrop: () => void;
+}
+
+function ProjectRow({
+  project,
+  reorder,
+  refresh,
+}: {
+  project: ProjectSummary;
+  /** Present for shown projects, which can be reordered; hidden ones can't. */
+  reorder?: ReorderControls;
   refresh: () => void;
 }) {
   const [mode, setMode] = useState<'idle' | 'repair' | 'remove'>('idle');
+  const [toggleError, setToggleError] = useState<string | null>(null);
   const label = labelOf(project);
 
   function startDrag(event: DragEvent) {
     // Firefox only starts a drag that carries data.
     event.dataTransfer.setData('text/plain', project.key);
     event.dataTransfer.effectAllowed = 'move';
-    onDragStart();
+    reorder?.onDragStart();
+  }
+
+  async function toggleHidden() {
+    setToggleError(null);
+    try {
+      await registryApi.setHidden(project.key, !project.hidden);
+      refresh();
+    } catch (err) {
+      setToggleError(messageOf(err));
+    }
   }
 
   return (
     <li
       className="radar-row"
-      data-dragging={dragging ? '' : undefined}
+      data-dragging={reorder?.dragging ? '' : undefined}
       // Not draggable while a form is open, so selecting text in it works.
-      draggable={mode === 'idle'}
-      onDragStart={startDrag}
-      onDragEnd={onDragEnd}
-      onDragOver={event => event.preventDefault()}
-      onDrop={event => {
-        event.preventDefault();
-        onDrop();
-      }}
+      draggable={reorder !== undefined && mode === 'idle'}
+      onDragStart={reorder ? startDrag : undefined}
+      onDragEnd={reorder?.onDragEnd}
+      onDragOver={reorder ? event => event.preventDefault() : undefined}
+      onDrop={
+        reorder
+          ? event => {
+              event.preventDefault();
+              reorder.onDrop();
+            }
+          : undefined
+      }
     >
-      <span className="radar-row-grip" aria-hidden>
-        ⠿
-      </span>
+      {reorder ? (
+        <span className="radar-row-grip" aria-hidden>
+          ⠿
+        </span>
+      ) : null}
       <div className="radar-row-main">
         <div className="radar-row-title">
           <a href={`#/${encodeURIComponent(project.key)}`}>{label}</a>
@@ -240,6 +291,11 @@ function ProjectRow({
         {project.available ? null : (
           <div className="radar-row-reason">{project.reason}</div>
         )}
+        {toggleError ? (
+          <p className="radar-error" role="alert">
+            {toggleError}
+          </p>
+        ) : null}
         {mode === 'repair' ? (
           <RepairForm
             project={project}
@@ -256,23 +312,38 @@ function ProjectRow({
         ) : null}
       </div>
       <div className="radar-row-actions">
+        {reorder ? (
+          <>
+            <button
+              type="button"
+              className="radar-button radar-button-icon"
+              disabled={reorder.first}
+              aria-label={`Move ${label} up`}
+              onClick={() => reorder.onMove(-1)}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="radar-button radar-button-icon"
+              disabled={reorder.last}
+              aria-label={`Move ${label} down`}
+              onClick={() => reorder.onMove(1)}
+            >
+              ↓
+            </button>
+          </>
+        ) : null}
         <button
           type="button"
-          className="radar-button radar-button-icon"
-          disabled={first}
-          aria-label={`Move ${label} up`}
-          onClick={() => onMove(-1)}
+          className={
+            project.hidden
+              ? 'radar-button radar-button-primary'
+              : 'radar-button'
+          }
+          onClick={toggleHidden}
         >
-          ↑
-        </button>
-        <button
-          type="button"
-          className="radar-button radar-button-icon"
-          disabled={last}
-          aria-label={`Move ${label} down`}
-          onClick={() => onMove(1)}
-        >
-          ↓
+          {project.hidden ? 'Show in tabs' : 'Hide'}
         </button>
         <button
           type="button"

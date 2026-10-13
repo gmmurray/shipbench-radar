@@ -11,11 +11,13 @@ import { loadRegistry, type Registry, RegistryError } from './registry.ts';
 import {
   addRegistryEntry,
   removeRegistryEntry,
+  setProjectHidden,
   setRegistryEntryPath,
   setTabOrder,
 } from './registryFile.ts';
 
-// The Projects page's API: add, repair, remove, reorder, and suggestions.
+// The Projects page's API: add, repair, remove, reorder, show/hide, and
+// suggestions.
 // Rules come from registration.ts, the same ones `pnpm radar` uses. Writes
 // go to registry.json through registryFile.ts; the server then re-reads the
 // file before responding, so the page's next list is already current.
@@ -31,6 +33,7 @@ export interface RegistryControls {
 }
 
 const PROJECT_ROUTE = /^\/projects\/([^/]+)$/;
+const HIDDEN_ROUTE = /^\/projects\/([^/]+)\/hidden$/;
 
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -125,6 +128,24 @@ async function routeRegistryRequest(
       known.has(key),
     );
     await setTabOrder(controls.path, order);
+    await controls.reload();
+    sendNoContent(res);
+    return;
+  }
+
+  // Show or hide a project's tab. It stays registered either way.
+  const hiddenMatch = HIDDEN_ROUTE.exec(route);
+  if (req.method === 'PUT' && hiddenMatch) {
+    const body = await readJson(req);
+    if (typeof body.hidden !== 'boolean') {
+      throw new Error('"hidden" must be a boolean.');
+    }
+    const key = decodeURIComponent(hiddenMatch[1]!);
+    await loadForWrite(controls);
+    if (!(await setProjectHidden(controls.path, key, body.hidden))) {
+      sendError(res, 404, `No project "${key}".`);
+      return;
+    }
     await controls.reload();
     sendNoContent(res);
     return;

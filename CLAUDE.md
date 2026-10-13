@@ -22,7 +22,8 @@ pnpm console      # quiet build, then serve with single-key commands (o/q/h)
 pnpm shortcut     # desktop shortcut to scripts\radar.cmd, which runs `console`
 pnpm radar add <path> [--key k] [--id id]   # register a project
 pnpm radar move <key> <path>                # repair a moved repository
-pnpm radar list                             # entries (tab order) and availability
+pnpm radar list                             # entries (tab order), availability, hidden
+pnpm radar show <key> | hide <key>          # give a project a tab, or take it away
 pnpm radar remove <key>                     # unregister (repo untouched)
 pnpm typecheck    # server/CLI config, then src/web/tsconfig.json
 pnpm lint         # Biome
@@ -125,6 +126,10 @@ record it under "Pending upstream" in DESIGN.md if Radar depends on it.
   response is current.
 - Tab order lives in `ui.order` and is applied by `inTabOrder()`. Anything
   that lists projects to the user uses it, not raw registry order.
+- Registered and shown are separate: `ui.hidden` (read by `hiddenKeys()`)
+  lists projects without a tab. Hidden projects stay registered, served, and
+  watched; only the tab bar and board mounting skip them. Opening a hidden
+  project by `#/key` restores its tab.
 - Tests that need a live server use `startRadar({ port: 0, ... })` and the
   helpers in `src/server/testSupport.ts`.
 

@@ -12,6 +12,8 @@ export interface ProjectSummary {
   /** `config.name` when the project is available, otherwise null. */
   name: string | null;
   available: boolean;
+  /** Registered but kept out of the tab bar (`ui.hidden`). */
+  hidden: boolean;
   /** Why the project can't be loaded; present only when unavailable. */
   reason?: string;
 }

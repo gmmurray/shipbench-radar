@@ -17,6 +17,9 @@ and every change it makes lands in that repository's files, exactly as
 
 - **One tab per project.** The URL names the open project (`#/my-repo`), so a
   pinned browser tab reopens where you left it.
+- **Register everything, show what's active.** Close a tab to hide its
+  project; it stays registered and watched, and reopens from the Projects
+  menu, which marks hidden projects that changed.
 - **Live updates.** When an agent, the CLI, or an editor changes a project's
   tasks, its board updates in place. Other tabs get a dot, so you can see which
   projects changed while you were looking elsewhere.
@@ -57,6 +60,7 @@ the launcher.
 | `pnpm radar add <path> [--key k] [--id id]` | Register a project |
 | `pnpm radar move <key> <path>` | Point a project at its new location |
 | `pnpm radar list` | List projects and whether each is available |
+| `pnpm radar show <key>` / `hide <key>` | Give a project a tab, or hide it (it stays registered) |
 | `pnpm radar remove <key>` | Unregister a project (the repository is untouched) |
 | `pnpm dev` | Development: the server and a Vite dev server |
 | `pnpm test` / `pnpm typecheck` / `pnpm check` | Tests, type checks, lint and format |

@@ -97,9 +97,11 @@ export async function removeRegistryEntry(
     const index = findIndex(data, key);
     if (index === -1) return false;
     removed = data.projects.splice(index, 1)[0] as unknown as RegistryEntry;
-    // A saved tab order shouldn't keep naming a project that's gone.
-    if (Array.isArray(data.ui.order)) {
-      data.ui.order = data.ui.order.filter(item => item !== key);
+    // Saved preferences shouldn't keep naming a project that's gone.
+    for (const field of ['order', 'hidden']) {
+      const list = data.ui[field];
+      if (Array.isArray(list))
+        data.ui[field] = list.filter(item => item !== key);
     }
     return true;
   });
@@ -118,6 +120,28 @@ export async function setRegistryEntryPath(
     if (index === -1) return false;
     data.projects[index]!.path = path;
     found = true;
+    return true;
+  });
+  return found;
+}
+
+/**
+ * Show or hide a project's tab, via `ui.hidden`. Returns false when there's
+ * no such entry.
+ */
+export async function setProjectHidden(
+  file: string,
+  key: string,
+  hidden: boolean,
+): Promise<boolean> {
+  let found = false;
+  await editRegistry(file, data => {
+    if (findIndex(data, key) === -1) return false;
+    found = true;
+    const current = Array.isArray(data.ui.hidden)
+      ? data.ui.hidden.filter(item => item !== key)
+      : [];
+    data.ui.hidden = hidden ? [...current, key] : current;
     return true;
   });
   return found;

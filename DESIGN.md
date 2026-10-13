@@ -339,6 +339,12 @@ must not be argued for as one.
 Tabs, not a wall of boards. Several boards visible at once is not the goal;
 moving between them quickly is.
 
+Being registered and having a tab are separate. Registration is the durable,
+slightly effortful step, so it makes sense to register every project you
+might touch. Which ones have a tab is a lightweight, frequently changed
+choice, made by hiding and showing (see "Shown and hidden projects" under
+"After v1").
+
 The tab bar listens to the shared event stream and marks the projects that
 changed while attention was elsewhere. With agents working in several repos,
 that indicator is likely the most useful thing Radar does, and it is close to
@@ -406,7 +412,9 @@ pass on the empty project, and `pnpm dev` serves a blank page.
   fallback such as `local/<name>` for a repository with no remote. `path` is
   the machine-local location, absolute. Identity and location are kept
   separate as described in "The project registry". `ui` holds interface
-  preferences, kept beside the entries rather than inside them. A missing registry file is an empty registry, since the
+  preferences, kept beside the entries rather than inside them: `ui.order`
+  (tab order) and `ui.hidden` (projects registered but without a tab), both
+  lists of keys, both read leniently. A missing registry file is an empty registry, since the
   first run has nothing registered. An unparseable or invalid registry fails
   startup with a message naming every problem. An entry whose path is missing
   or isn't an initialized ShipBench project loads as *unavailable* instead of
@@ -515,6 +523,49 @@ Done 2026-09-23. As built:
 
 A theme toggle. (Keeping boards mounted, once listed here, shipped with board
 0.6.0; see "Mounting".)
+
+**Shown and hidden projects** (done 2026-10-13). After two weeks of real use,
+the registry held about ten projects while only one to four were active at
+a time. Re-registering is the friction, so the fix separates the two:
+hiding a project keeps it registered and drops only its tab.
+
+- **Storage.** `ui.hidden`, a list of keys beside `ui.order`, read
+  leniently by `hiddenKeys()`. `/api/projects` reports `hidden` on each
+  project. New projects start shown. Removing a project drops its key from
+  `ui.hidden` as well as `ui.order`.
+- **Hiding** works like closing a browser tab: a × appears on each tab on
+  hover or keyboard focus. Hiding the open tab moves to its neighbour. A
+  "Hid … · Undo" message stays up for six seconds, and clears if the
+  project comes back some other way.
+- **Reopening.** The "+ Projects" end of the tab bar is now a menu listing
+  hidden projects, with a count, plus "Manage projects…". Opening a hidden
+  project **by name** restores its tab, whether from the menu, a bookmark,
+  or a pinned `#/key` URL: asking for it by name means you want it. Undo
+  works the same way.
+- **Hidden projects stay watched.** A change in a hidden project puts a dot
+  on its menu entry and on the menu button, so agent activity is still
+  visible without a tab. A hidden project's board unmounts, unless it is
+  the one being opened.
+- **Projects page** has "Tabs" (shown, reorderable) and "Hidden" sections,
+  with "Hide" and "Show in tabs" buttons. Reordering the shown projects
+  keeps hidden keys in `ui.order`, after the shown ones.
+- **CLI:** `pnpm radar show <key>` and `hide <key>`; `list` marks hidden
+  entries.
+- **Escape** pressed while the menu is open closes the menu and is stopped
+  in the capture phase on `document`, before the visible board's `window`
+  listener, so it doesn't also close that board's open task.
+- **Rejected: hiding projects automatically after a stretch with no
+  activity.** It's unpredictable, and the user knows what's active this
+  week.
+- **Verified** in Chromium, with 24 checks plus one for the undo message:
+  - × on hover; hiding a background tab
+  - hiding the open tab moves to its neighbour; undo
+  - `ui.hidden` saved
+  - menu count and change dots
+  - reopening from the menu shows the change made while hidden
+  - Escape closes the menu but not an open task
+  - a link to a hidden project restores its tab
+  - the Projects page's Hide and Show in tabs; reordering keeps hidden keys
 
 **Projects page** (done 2026-09-24), at `#/_projects`: keys can't contain
 `_`, so the address can't clash with a project. A "+ Projects" link sits at
