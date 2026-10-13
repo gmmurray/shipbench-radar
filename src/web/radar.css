@@ -119,37 +119,14 @@
 }
 
 /* ---- Fitting the board under the tab bar -------------------------------- *
- * @shipbench/board 0.4.0 sizes itself to the viewport: `min-h-screen` on its
- * root, a `sticky top-0` header, and `100vh` in its canvas, kanban, and
- * detail-sidebar calculations. With a tab bar above it, each of those is off
- * by --radar-tabs-h. The board's classes are Tailwind utilities inside
- * `@layer utilities`, and unlayered rules like these beat any layered rule,
- * so these corrections win without specificity games.
- *
- * Tied to the board's internals: re-check on every board upgrade. The
- * durable fix is upstream (DESIGN.md, "Pending upstream"). */
+ * The board's supported sizing hooks (@shipbench/board 0.6.0+): it treats
+ * --sb-viewport-h as its viewport height and stops its sticky header and
+ * detail panel at --sb-sticky-top. Set on an ancestor, so every mounted board
+ * inherits them. */
 
-.radar-board > .sb-canvas-grid {
-  min-height: calc(100vh - var(--radar-tabs-h));
-}
-
-.radar-board .sb-board-root > header {
-  top: var(--radar-tabs-h);
-}
-
-.radar-board .sb-board-root > main {
-  min-height: calc(100vh - var(--radar-tabs-h) - var(--sb-header-h));
-}
-
-.radar-board [class*="min-h-[calc(100vh-var(--sb-header-h)-2.5rem)]"] {
-  min-height: calc(100vh - var(--radar-tabs-h) - var(--sb-header-h) - 2.5rem);
-}
-
-@media (width >= 64rem) {
-  .radar-board aside[class*="lg:sticky"] {
-    top: calc(var(--radar-tabs-h) + var(--sb-header-h) + 1.25rem);
-    max-height: calc(100vh - var(--radar-tabs-h) - var(--sb-header-h) - 2.5rem);
-  }
+.radar-board {
+  --sb-viewport-h: calc(100vh - var(--radar-tabs-h));
+  --sb-sticky-top: var(--radar-tabs-h);
 }
 
 /* ---- Registry problem banner --------------------------------------------

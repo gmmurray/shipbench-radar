@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -155,6 +156,42 @@ export function App() {
     });
   }, [activeKey]);
 
+  // Boards stay mounted once opened, and inactive ones are hidden rather than
+  // unmounted, so switching back is instant and keeps the open task, search,
+  // and scroll. The board (0.6.0+) sends keyboard shortcuts only to the
+  // visible one. See DESIGN.md, "Mounting".
+  const boardKey = active?.available ? active.key : null;
+  const [opened, setOpened] = useState<readonly string[]>([]);
+  useEffect(() => {
+    if (boardKey) {
+      setOpened(previous =>
+        previous.includes(boardKey) ? previous : [...previous, boardKey],
+      );
+    }
+  }, [boardKey]);
+  // Include the active board on the render that first shows it, not one
+  // render later, and drop any board whose project was removed or became
+  // unavailable.
+  const mountedBoards = [
+    ...opened,
+    ...(boardKey && !opened.includes(boardKey) ? [boardKey] : []),
+  ].filter(key => projects.some(p => p.key === key && p.available));
+
+  // The page scroll is shared by every board, so remember it per view.
+  const viewKey = boardKey ?? `view:${hashKey ?? ''}`;
+  const scrollByView = useRef(new Map<string, number>());
+  const viewKeyRef = useRef(viewKey);
+  useEffect(() => {
+    const remember = () =>
+      scrollByView.current.set(viewKeyRef.current, window.scrollY);
+    window.addEventListener('scroll', remember, { passive: true });
+    return () => window.removeEventListener('scroll', remember);
+  }, []);
+  useLayoutEffect(() => {
+    viewKeyRef.current = viewKey;
+    window.scrollTo(0, scrollByView.current.get(viewKey) ?? 0);
+  }, [viewKey]);
+
   if (state.status === 'loading') return null;
 
   if (state.status === 'error') {
@@ -168,7 +205,7 @@ export function App() {
     <RegistryProblem message={list.registryProblem} />
   ) : null;
 
-  let content: ReactNode;
+  let content: ReactNode = null;
   if (onProjectsPage) {
     content = <ProjectsPage list={list} refresh={refresh} />;
   } else if (list.projects.length === 0) {
@@ -195,10 +232,6 @@ export function App() {
         <RepairForm project={active} refresh={refresh} />
       </Notice>
     );
-  } else {
-    // Keyed by project: switching tabs unmounts the old board and mounts a
-    // fresh one. See DESIGN.md, "Mounting: one board at a time".
-    content = <BoardHost key={active.key} projectKey={active.key} />;
   }
 
   return (
@@ -210,7 +243,14 @@ export function App() {
         unread={unread}
       />
       {problem}
-      <div className="radar-board">{content}</div>
+      <div className="radar-board">
+        {mountedBoards.map(key => (
+          <div key={key} hidden={key !== boardKey}>
+            <BoardHost projectKey={key} visible={key === boardKey} />
+          </div>
+        ))}
+        {content}
+      </div>
     </div>
   );
 }
@@ -283,10 +323,17 @@ function RegistryProblem({ message }: { message: string }) {
   );
 }
 
-function BoardHost({ projectKey }: { projectKey: string }) {
+function BoardHost({
+  projectKey,
+  visible,
+}: {
+  projectKey: string;
+  visible: boolean;
+}) {
   // Stable per project: the board rebuilds its store whenever `api` changes.
   const api = useMemo(() => createProjectApi(projectKey), [projectKey]);
-  return <Board api={api} documentTitle />;
+  // Only the visible board names the browser tab.
+  return <Board api={api} documentTitle={visible} />;
 }
 
 function Notice({ title, children }: { title: string; children: ReactNode }) {

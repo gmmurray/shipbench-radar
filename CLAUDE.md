@@ -99,16 +99,20 @@ record it under "Pending upstream" in DESIGN.md if Radar depends on it.
   registered repository's own `.shipbench/`.
 - One server process, one `FsAdapter` per project, routed by project key
   under `/api/projects/:key/...`. No child processes or per-project ports.
-- Mount only the active project's board, until the upstream key-handler fix
-  ships (DESIGN.md, "Mounting").
+- Boards stay mounted once opened; inactive ones are hidden with the `hidden`
+  attribute, never `visibility` or off-screen positioning. The board
+  (0.6.0+) skips keyboard shortcuts only for boards hidden by `hidden` or
+  `display: none`. Only the visible board gets `documentTitle`. See
+  DESIGN.md, "Mounting".
 - One multiplexed SSE stream for all projects, never one per project, because
   of the browser's six-connection-per-origin limit. The browser side shares
   one `EventSource` (`src/web/events.ts`).
-- `src/web/radar.css` overrides five of the board's viewport-sized rules so
-  it fits under the tab bar. They depend on `@shipbench/board`'s class
-  names: when bumping the board, re-check them in a browser (short board
-  with no page scroll, long board with pinned tab bar and header, detail
-  sidebar).
+- The board fits under the tab bar through its own sizing variables,
+  `--sb-viewport-h` and `--sb-sticky-top`, set on `.radar-board` in
+  `src/web/radar.css`. Never override the board's rules by class name.
+  After bumping the board, still check it in a browser: a short board with
+  no page scroll, a long board with the tab bar and header pinned, the
+  detail sidebar, and a task left open on a hidden board.
 - The server binds `127.0.0.1` on a fixed port and rejects requests with a bad
   `Host`/`Origin` or a non-JSON write (DESIGN.md, "The local server").
 - Registry entries are declarations; derived data goes in a separate,

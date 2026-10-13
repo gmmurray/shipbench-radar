@@ -1,7 +1,7 @@
 # Radar — design notes
 
 Status: v1 (M0–M3) done 2026-09-23; launcher and Projects page done
-2026-09-24 (see "After v1"); on ShipBench 0.5.0 since 2026-09-27. Written
+2026-09-24 (see "After v1"); on ShipBench 0.6.0 since 2026-09-29. Written
 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
@@ -68,9 +68,9 @@ Roughly:
   It is transcribable almost directly from
   `../shipbench/apps/cli/src/boardServer.ts` (see the request handler at
   roughly lines 236-400). Nothing is invented; it is delegation.
-- Frontend mounts `createBoard(el, { api })` from `@shipbench/board` for the
-  active project only (see "Mounting: one board at a time"), with a `BoardAPI`
-  whose fetches carry the project id.
+- Frontend renders the `Board` component from `@shipbench/board` once per
+  opened project, keeping inactive boards mounted but hidden (see
+  "Mounting"), each with a `BoardAPI` whose fetches carry the project id.
 - One chokidar watcher per project, following the pattern in
   `../shipbench/apps/cli/src/tui/watch.ts` — the tasks directory plus
   `config.json` and `layout.json`, filtered to `.md` and those two files,
@@ -97,7 +97,7 @@ switching costs a click with no port, no child process, and no cold start.
 
 ## What the published packages already provide
 
-Verified against the ShipBench repository at 0.4.0, and still true at 0.5.0:
+Verified against the ShipBench repository at 0.4.0, and still true at 0.6.0:
 
 - `createBoardRequestHandler(adapter, bundleDir, warn)` in the CLI holds no
   module-global state, so N boards in one process needs no contortion. It is
@@ -133,9 +133,30 @@ What 0.5.0 changed for Radar (upgraded 2026-09-27):
   an `unreadable` array, which Radar passes through untouched, and the board
   shows those files in an Unreadable column. Writes to one throw
   `UnreadableTaskError`, which Radar answers with 422, as the CLI does.
-- The key-listener and board-sizing fixes are not in 0.5.0 (see "Pending
-  upstream"). The layout overrides were re-checked in a browser against
-  0.5.0 and needed no change.
+- The key-listener and board-sizing fixes were not in 0.5.0. The layout
+  overrides were re-checked in a browser against 0.5.0 and needed no change.
+
+What 0.6.0 changed for Radar (upgraded 2026-09-29):
+
+- **Board keyboard shortcuts skip hidden boards**, so Radar now keeps boards
+  mounted (see "Mounting").
+- **Hosts size the board with two CSS variables.** `--sb-viewport-h` is the
+  height the board treats as its viewport, and `--sb-sticky-top` is where its
+  sticky header and detail panel stop. Radar sets both on `.radar-board`, in
+  place of the five rule overrides it carried before. Those overrides
+  targeted class names that 0.6.0 renamed, so they would have silently
+  stopped matching.
+- Verified in Chromium:
+  - a short board fits with no page scroll; on a long board, the header
+    stays pinned under the tab bar
+  - the detail sidebar sits exactly under both bars
+  - a task open on one board survives switching away, and pressing Escape,
+    `j` and ArrowDown on another board
+  - switching back makes no requests
+  - a hidden board shows a CLI change made while it was hidden
+  - scroll position is restored per project
+  - the tab title follows the visible board
+  - there's still one event stream
 
 One constraint that rules out a cheaper design: the shipped standalone bundle
 hardcodes root-absolute `/api/...` paths. The hardcoding lives only in
@@ -144,60 +165,52 @@ entry is path-agnostic. The published board *app* therefore cannot be
 multiplexed under path prefixes such as `/board/foo/`. It is one origin per
 board, or the host owns the shell. Radar owns the shell.
 
-## Mounting: one board at a time
+## Mounting: boards stay mounted, inactive ones hidden
 
-**Decision: only the active tab's board is mounted. Switching tabs unmounts
-the old board and mounts the new one.**
+**Decision (since board 0.6.0, 2026-09-29): a project's board mounts the
+first time its tab is opened and stays mounted. Inactive boards are hidden
+with the `hidden` attribute, not unmounted.** Switching back is instant, with
+no refetch, and keeps the open task, search, archive view, and scroll
+position. A board unmounts only when its project is removed or becomes
+unavailable.
 
 Radar is a React app itself, so it renders the package's exported `Board`
-component with `key={projectKey}` rather than calling `createBoard`, which
-would create a second React root. Changing the key is the unmount. `Board`
-takes the same `api` / `themeControl` / `documentTitle` props that
-`createBoard` forwards to it.
+component rather than calling `createBoard`, which would create a second
+React root. `Board` takes the same `api` / `themeControl` / `documentTitle`
+props that `createBoard` forwards to it.
 
-Keeping every board mounted and hiding the inactive ones does not work with
-the board as published. Two components attach `keydown` listeners to `window`
-rather than to their own subtree:
+This depends on board 0.6.0. Before it, two components listened for `keydown`
+on `window` (`BoardCanvas` for Escape, `DetailView` for `j`/`k`/arrows), so a
+hidden board still took every keystroke: Escape on the visible board closed
+the hidden boards' open tasks, and a hidden board with a task open took over
+the arrow keys. Radar therefore unmounted inactive boards through 0.5.0. The
+fix Radar asked for upstream was a visibility gate rather than moving the
+listeners onto the board's root, because key events only reach an element
+that holds focus, and the standalone board would have ignored Escape whenever
+focus sat on `<body>`. Board 0.6.0 shipped that gate: shortcuts reach only a
+board that isn't hidden by `hidden` or `display: none`.
 
-- `BoardCanvas` — Escape closes the archive view or deselects the task.
-- `DetailView` — `j`/`k`/ArrowUp/ArrowDown step through the column, with
-  `preventDefault`.
+Consequences:
 
-A hidden board would still receive every keystroke. Escape on the visible
-board would also close the detail views of the hidden ones, and a hidden board
-with a task open would take over the arrow keys.
-
-Unmounting costs one `getConfig` + `listTasks` round trip to a local server
-per switch, which is milliseconds. It also loses the in-board view state (open
-task, archive view) on switch. That is accepted for now. Nothing lets a host
-set the selected task, so Radar could not restore it anyway.
-
-Consequences of mounting one board at a time:
-
-- `documentTitle: true` is safe. Only one board sets the title, and its
-  unmount cleanup restores the previous title.
-- `themeControl` stays off. The toggle writes `data-theme` on `<html>` and
-  `sb-theme` in `localStorage`, both page-global. Radar owns the theme and
-  sets `data-theme` on `<html>` itself; the board's CSS reads it from there,
-  as it does under Harbor.
-- Radar's own writes can only touch the active project, so they never mark a
-  tab changed. The unread indicator reflects outside writes (agents, the CLI,
-  an editor) without needing to tell writers apart.
-
-If keeping boards alive turns out to matter, the fix belongs upstream, and it
-is not to move the listeners onto the board's root element. Key events only
-reach an element that holds focus, so the standalone board would ignore
-Escape and `j`/`k` whenever focus sits on `<body>`, for example after a fresh
-load. The fix is a visibility gate: keep listening on `window`, but have each
-handler return early when its own root is not rendered
-(`root.getClientRects().length === 0`, true under `display: none`), ideally
-through one shared `useBoardKeydown` hook. That needs no API change, leaves
-standalone and Harbor unchanged, and lets a host keep hidden boards mounted
-just by hiding them. The rest of the board already tolerates several
-instances: `--sb-header-h` is set on each board's own root, and a hidden
-board's toaster renders inside a hidden tree. With that fix upstream, Radar
-would switch to keeping boards mounted, which makes switching instant and
-keeps each tab's open task.
+- **Title.** Only the visible board gets `documentTitle`. Toggling it hands
+  the browser tab's title to whichever board is shown, and the board's
+  cleanup restores the previous title.
+- **Scroll.** All boards share the page's scroll, so Radar remembers the
+  scroll position per view and restores it on switching (`App.tsx`).
+- **Hidden boards stay current.** Each keeps its `onTasksChanged`
+  subscription on the shared stream, so a change made while it was hidden is
+  already on screen when its tab is opened.
+- **Theme.** `themeControl` stays off. The toggle writes `data-theme` on
+  `<html>` and `sb-theme` in `localStorage`, both page-global. Radar owns the
+  theme; the board's CSS reads `data-theme` from `<html>`, as it does under
+  Harbor.
+- **Unread markers.** Radar's own writes can only come from the visible
+  board, so they never mark a tab changed. The unread indicator reflects
+  outside writes (agents, the CLI, an editor) without needing to tell writers
+  apart.
+- **Cost.** Each opened board keeps its store, and refreshes on its own
+  project's events and when the browser tab regains focus. With a handful of
+  projects that's negligible.
 
 ## Writes go straight to each repository
 
@@ -442,14 +455,11 @@ Done 2026-09-23. As built:
   on screen, cleared on viewing. Kept in memory, per "Interface". Any event
   also re-reads the project list, as does the browser tab becoming visible
   again, so names and availability stay current.
-- Layout: the board sizes itself to the viewport, so Radar corrects five of
-  its rules from `radar.css` by `--radar-tabs-h`: root `min-height`, header
-  `top`, canvas and kanban `min-height`, and the detail sidebar's `top` and
-  `max-height`. The board's rules sit in `@layer utilities` and Radar's are
-  unlayered, so Radar's win outright. These overrides depend on the board's
-  class names (checked at 0.4.0 and 0.5.0), so re-check them on every board
-  upgrade. The durable fix is
-  upstream (see "Pending upstream").
+- Layout: the board sizes itself to the viewport. Through 0.5.0, Radar
+  corrected five of its rules from `radar.css` by `--radar-tabs-h`. Since
+  0.6.0 it sets the board's own sizing variables instead:
+  `--sb-viewport-h: calc(100vh - var(--radar-tabs-h))` and
+  `--sb-sticky-top: var(--radar-tabs-h)`, both on `.radar-board`.
 - Theme: no `data-theme` on `<html>`, so the board follows the OS setting.
   A toggle can come later.
 - **Verified** in Chromium with nine projects registered. A real `shipbench
@@ -503,8 +513,8 @@ Done 2026-09-23. As built:
 
 ### After v1
 
-Keep boards mounted once the upstream key-handler fix is released. A theme
-toggle.
+A theme toggle. (Keeping boards mounted, once listed here, shipped with board
+0.6.0; see "Mounting".)
 
 **Projects page** (done 2026-09-24), at `#/_projects`: keys can't contain
 `_`, so the address can't clash with a project. A "+ Projects" link sits at
@@ -608,25 +618,19 @@ background service, and it avoids the dev-port clash a service would bring.
 
 ## Pending upstream
 
-Filed in ShipBench 2026-09-23. None of these blocks building Radar.
+Nothing is pending. Everything Radar filed upstream has shipped:
 
-- **Board key handlers ignore hidden boards** (needs an `@shipbench/board`
-  release). Until it ships, Radar unmounts inactive boards. Once it does,
-  switch to keeping every board mounted and hiding inactive ones (see
-  "Mounting").
-- **CLI board server `Host`/`Origin` checks.** Shipped in `shipbench` 0.5.0.
-  Radar never used the CLI server and has had these checks from the start
-  (see "The local server").
-- **Let hosts size the board** (found in M2; needs an `@shipbench/board`
-  release). The board assumes it owns the viewport:
-  `min-h-screen` on its root, a `top-0` sticky header, and `100vh` in five
-  height calculations. A host with its own chrome above the board (Radar's
-  tab bar, or a Harbor page header) has to override each one. A small fix:
-  read two variables with today's values as fallbacks, e.g.
-  `var(--sb-viewport-h, 100vh)` in place of `100vh` and
-  `var(--sb-top-offset, 0px)` for the sticky offsets. A host would then set
-  two custom properties and delete its overrides. Until then, Radar
-  overrides the rules itself (see M2).
+- **CLI board server `Host`/`Origin` checks:** `shipbench` 0.5.0. Radar never
+  used the CLI server and has had these checks from the start (see "The
+  local server").
+- **Task slugs confined to the tasks directory:** `@shipbench/core` 0.5.0.
+- **Board key handlers ignore hidden boards:** `@shipbench/board` 0.6.0.
+  Radar now keeps boards mounted (see "Mounting").
+- **Let hosts size the board:** `@shipbench/board` 0.6.0, as
+  `--sb-viewport-h` and `--sb-sticky-top`. Radar sets them instead of
+  overriding the board's rules.
+
+New findings go here as they come up.
 
 ## Open questions
 
