@@ -86,8 +86,15 @@ the real parser.
   - `apps/cli/src/tui/watch.ts` — the watcher pattern to reproduce.
   - `packages/board/src/standalone.tsx` — the CLI's `BoardAPI`, the model for
     Radar's per-project one.
-- `../shipbench-harbor` — the other external host of the board. It answers
-  "what is on `main`" through GitHub; Radar answers "what is on disk now".
+- `../shipbench-harbor` — formerly the other external host of the board,
+  retired in ShipBench 0.8.0. Radar is now the only outside consumer of
+  `@shipbench/board`.
+
+When bumping ShipBench, read every changelog entry in between for
+`packages/core` and `packages/board`. Also diff the CLI's `boardServer.ts`
+and the board's `standalone.tsx`: Radar mirrors both, and fixes there (such
+as how a cleared field crosses JSON) must be copied here. Record what
+changed in DESIGN.md, under "What the published packages already provide".
 
 ShipBench changes go through that repo's normal process, because it is a
 public package. When Radar work turns up a ShipBench bug or improvement,

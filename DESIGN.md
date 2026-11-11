@@ -1,7 +1,7 @@
 # Radar — design notes
 
 Status: v1 (M0–M3) done 2026-09-23; launcher and Projects page done
-2026-09-24 (see "After v1"); on ShipBench 0.6.0 since 2026-09-29. Written
+2026-09-24 (see "After v1"); on ShipBench 0.9.0 since 2026-11-10. Written
 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
@@ -47,7 +47,8 @@ It is customized for one person, so keeping it out of ShipBench removes any
 obligation to generalize a decision before there is evidence for it.
 
 It also becomes the second external consumer of `@shipbench/core` and
-`@shipbench/board` after Harbor. An export that only resolves through a
+`@shipbench/board` after Harbor (since retired, in ShipBench 0.8.0, which
+leaves Radar the only outside host). An export that only resolves through a
 workspace link fails in an ordinary `npm install` here immediately, which is
 the kind of pressure a published contract only gets from a real outside host.
 
@@ -97,7 +98,7 @@ switching costs a click with no port, no child process, and no cold start.
 
 ## What the published packages already provide
 
-Verified against the ShipBench repository at 0.4.0, and still true at 0.6.0:
+Verified against the ShipBench repository at 0.4.0, and still true at 0.9.0:
 
 - `createBoardRequestHandler(adapter, bundleDir, warn)` in the CLI holds no
   module-global state, so N boards in one process needs no contortion. It is
@@ -157,6 +158,36 @@ What 0.6.0 changed for Radar (upgraded 2026-09-29):
   - scroll position is restored per project
   - the tab title follows the visible board
   - there's still one event stream
+
+What 0.7.0–0.9.0 changed for Radar (upgraded 2026-11-10, from 0.6.0 while
+the CLI in use was already at 0.9.0):
+
+- **Clearing a field now works, and never did before.** The board clears a
+  field (0.7.0's new `flag`, or an assignee) by passing it as `undefined`,
+  which `JSON.stringify` drops, so the cleared key never reached the server.
+  The CLI pairs two halves to fix this, and Radar now copies both. In the
+  browser, `wireFields` sends `undefined` as `null` (`src/web/api.ts`; it
+  lives in the board's standalone entry and isn't exported). On the server,
+  `optionalTaskFields` turns `null` back into `undefined` with the key kept,
+  which core reads as "clear" (`src/server/projectApi.ts`).
+  `app.test.ts` covers it, and the browser check below set and cleared a
+  flag through the board's own controls.
+- **Flags and `related` links** (0.7.0, 0.9.0) are core and board features
+  that pass through Radar unchanged. `listTasks` now returns
+  `archivedSlugs`, so a `related` link to an archived task resolves; Radar
+  passes the result through, and `app.test.ts` checks it.
+- **Breaking in 0.8.0:** `GitHubAdapter`, `GitHubApiError` and the GitHub URL
+  normalizers were removed with Harbor's retirement. Radar uses only
+  `parseGithubRemoteUrl`, which stays. The Biome import rule for `src/web`
+  now names only `FsAdapter`.
+- Browser re-check against board 0.9.0:
+  - a short board fits with no page scroll; on a long board, the header
+    stays pinned under the tab bar
+  - the detail sidebar sits exactly under both bars
+  - a task open on a hidden board survives Escape and `j` on another board
+  - a flag set and then cleared from the detail view lands in, then leaves,
+    the task file
+  - no console errors
 
 One constraint that rules out a cheaper design: the shipped standalone bundle
 hardcodes root-absolute `/api/...` paths. The hardcoding lives only in
@@ -680,6 +711,16 @@ Nothing is pending. Everything Radar filed upstream has shipped:
 - **Let hosts size the board:** `@shipbench/board` 0.6.0, as
   `--sb-viewport-h` and `--sb-sticky-top`. Radar sets them instead of
   overriding the board's rules.
+
+Not yet filed (found upgrading to 0.9.0):
+
+- **Export `wireFields` from `@shipbench/board`, or encode clears inside
+  the board.** Every host whose `BoardAPI` crosses JSON has to know that the
+  board clears a field with `undefined` and must send it as `null`. The
+  helper that does this sits in the standalone entry and isn't exported, so
+  Radar copied it. Without it, clearing silently did nothing in Radar from
+  M1 until this upgrade. Either export it, or have the board pass `null`
+  for a clear, and document the contract on `BoardAPI.updateTask`.
 
 New findings go here as they come up.
 

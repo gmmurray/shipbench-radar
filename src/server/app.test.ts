@@ -250,6 +250,57 @@ describe('project API', () => {
     expect(write.status).toBe(422);
   });
 
+  it('clears a field the board sends as null', async () => {
+    // The board clears a flag (or an assignee) with `undefined`, which the
+    // browser API sends as `null`. Before 0.9.0's upgrade Radar dropped it,
+    // so clearing silently did nothing.
+    const created = await sendJsonBody('POST', '/api/projects/alpha/tasks', {
+      title: 'Flag me',
+    });
+    const { slug } = JSON.parse(created.body) as { slug: string };
+    const file = join(alphaPath, '.shipbench', 'tasks', `${slug}.md`);
+
+    await sendJsonBody('PATCH', `/api/projects/alpha/tasks/${slug}`, {
+      fields: { flag: 'Waiting on review', assignee: 'me' },
+    });
+    expect(await readFile(file, 'utf-8')).toMatch(/flag: Waiting on review/);
+
+    const cleared = await sendJsonBody(
+      'PATCH',
+      `/api/projects/alpha/tasks/${slug}`,
+      { fields: { flag: null, assignee: null } },
+    );
+    expect(cleared.status).toBe(200);
+    const text = await readFile(file, 'utf-8');
+    expect(text).not.toMatch(/^flag:/m);
+    expect(text).not.toMatch(/^assignee:/m);
+  });
+
+  it('passes archived slugs through so related links to them resolve', async () => {
+    const make = async (title: string) =>
+      (
+        JSON.parse(
+          (await sendJsonBody('POST', '/api/projects/alpha/tasks', { title }))
+            .body,
+        ) as { slug: string }
+      ).slug;
+    const old = await make('Shipped long ago');
+    const current = await make('Builds on it');
+    await sendJsonBody('POST', `/api/projects/alpha/tasks/${old}/archive`, {});
+
+    const listed = JSON.parse(
+      (await send('GET', '/api/projects/alpha/tasks')).body,
+    ) as { archivedSlugs: string[] };
+    expect(listed.archivedSlugs).toContain(old);
+
+    const linked = await sendJsonBody(
+      'PATCH',
+      `/api/projects/alpha/tasks/${current}`,
+      { fields: { related: [old] } },
+    );
+    expect(linked.status).toBe(200);
+  });
+
   it('refuses unavailable and unknown projects', async () => {
     const gone = await send('GET', '/api/projects/gone/tasks');
     expect(gone.status).toBe(503);

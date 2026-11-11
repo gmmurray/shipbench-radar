@@ -53,6 +53,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * The board clears a field by passing it as `undefined` (clearing a flag or
+ * an assignee), and `JSON.stringify` drops such a key, so the server would
+ * see no change at all. Send `null` instead; the server turns it back into
+ * `undefined` (`optionalTaskFields` in src/server/projectApi.ts). A copy of
+ * `wireFields` in the board's standalone entry, which the package doesn't
+ * export.
+ */
+function wireFields(fields: Partial<TaskFrontmatter>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [
+      key,
+      value === undefined ? null : value,
+    ]),
+  );
+}
+
 function write(method: string, value?: unknown): RequestInit {
   return {
     method,
@@ -123,7 +140,8 @@ export function createProjectApi(key: string): BoardAPI {
       slug: string,
       fields: Partial<TaskFrontmatter>,
       body?: string,
-    ) => request(task(slug), write('PATCH', { fields, body })),
+    ) =>
+      request(task(slug), write('PATCH', { fields: wireFields(fields), body })),
     addComment: (slug: string, text: string) =>
       request(`${task(slug)}/comments`, write('POST', { text })),
     editComment: (slug: string, index: number, text: string) =>

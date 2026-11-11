@@ -35,10 +35,22 @@ function requireString(value: unknown, field: string): string {
   return value;
 }
 
+/**
+ * JSON cannot carry `undefined`, so the browser sends `null` for "clear this
+ * field" (see `wireFields` in src/web/api.ts). Core clears a field whose key
+ * is present with an `undefined` value, so keep the key and translate only
+ * the value: a dropped key would leave the field as it was, and a raw `null`
+ * would be written into the frontmatter. Mirrors the CLI's board server.
+ */
 function optionalTaskFields(value: unknown): Partial<TaskFrontmatter> {
   if (value === undefined) return {};
   if (!isObject(value)) throw new Error('"fields" must be an object.');
-  return value as Partial<TaskFrontmatter>;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, field]) => [
+      key,
+      field === null ? undefined : field,
+    ]),
+  ) as Partial<TaskFrontmatter>;
 }
 
 function optionalBody(value: unknown): string | undefined {

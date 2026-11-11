@@ -53,12 +53,8 @@
               "options": {
                 "paths": {
                   "@shipbench/core": {
-                    "importNames": [
-                      "FsAdapter",
-                      "GitHubAdapter",
-                      "GitHubApiError"
-                    ],
-                    "message": "Adapters are server-side. FsAdapter imports node:fs and breaks the Vite browser build. Type-only imports from the core barrel are fine."
+                    "importNames": ["FsAdapter"],
+                    "message": "FsAdapter is server-side: it imports node:fs and breaks the Vite browser build. Type-only imports from the core barrel are fine, and browser-safe helpers have subpaths such as @shipbench/core/flag."
                   }
                 }
               }
