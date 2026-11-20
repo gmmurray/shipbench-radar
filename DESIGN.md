@@ -1,7 +1,7 @@
 # Radar — design notes
 
 Status: v1 (M0–M3) done 2026-09-23; launcher and Projects page done
-2026-09-24 (see "After v1"); on ShipBench 0.9.0 since 2026-11-10. Written
+2026-09-24 (see "After v1"); on ShipBench 0.10.0 since 2026-11-20. Written
 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
@@ -98,7 +98,7 @@ switching costs a click with no port, no child process, and no cold start.
 
 ## What the published packages already provide
 
-Verified against the ShipBench repository at 0.4.0, and still true at 0.9.0:
+Verified against the ShipBench repository at 0.4.0, and still true at 0.10.0:
 
 - `createBoardRequestHandler(adapter, bundleDir, warn)` in the CLI holds no
   module-global state, so N boards in one process needs no contortion. It is
@@ -189,6 +189,13 @@ the CLI in use was already at 0.9.0):
     the task file
   - no console errors
 
+What 0.10.0 changed for Radar (upgraded 2026-11-20): nothing to adapt. Core
+gained `taskLinkTargets` and `tasksLinkingTo`, and the board resolves bare
+`[text](slug.md)` task links and links into the archive, all inside the
+board. The CLI's `boardServer.ts` and the board's `standalone.tsx` were
+unchanged since 0.9.0, so there was nothing to mirror. The `wireFields`
+export suggested under "Pending upstream" hasn't landed yet.
+
 One constraint that rules out a cheaper design: the shipped standalone bundle
 hardcodes root-absolute `/api/...` paths. The hardcoding lives only in
 `packages/board/src/standalone.tsx`, which is the CLI's `BoardAPI`; the library
@@ -223,9 +230,9 @@ board that isn't hidden by `hidden` or `display: none`.
 
 Consequences:
 
-- **Title.** Only the visible board gets `documentTitle`. Toggling it hands
-  the browser tab's title to whichever board is shown, and the board's
-  cleanup restores the previous title.
+- **Title.** No board gets `documentTitle`; Radar sets the browser tab's
+  title itself (see "Interface"). From 2026-09-29 to 2026-11-20 only the
+  visible board got it, which handed the title to whichever board was shown.
 - **Scroll.** All boards share the page's scroll, so Radar remembers the
   scroll position per view and restores it on switching (`App.tsx`).
 - **Hidden boards stay current.** Each keeps its `onTasksChanged`
@@ -385,6 +392,36 @@ changed.
 Unread markers are in-memory for now: a restart clears them. If they need to
 survive restarts, the last-seen state is derived data and goes in the cache
 file, never in the registry.
+
+**The browser tab carries the same signal** (2026-11-20), because the tab
+strip is all you see of Radar while working in another window.
+- **Favicon:** ShipBench's own mark, imported from
+  `@shipbench/board/dist/logo.svg`, so it stands out among other tabs and
+  follows any brand change on upgrade.
+- **At rest, the title is** `{project} | ShipBench Radar`, or
+  `Projects | ShipBench Radar` on the Projects page. Radar owns the title;
+  the boards' `documentTitle` is off.
+- **"Unseen" changes** are the projects with a change dot (hidden ones
+  included), plus the open project if it changed while the window didn't
+  have focus. Nothing on the page marks that last case: the board just
+  updates, which you'd see only if you were looking.
+- **When a change arrives while the window doesn't have focus,** the title
+  reads `↻ {changed project} updated | ShipBench Radar` for three seconds.
+  It then settles on `● {project} | …`, or `● (n) {project} | …` once more
+  than one project has unseen changes, so the count appears only when it
+  adds information.
+- **Clearing:** focusing the window clears the open project's mark;
+  visiting a project clears its dot, as before.
+- **Code:** `titleFor()` in `src/web/title.ts` (unit-tested). The state
+  lives in `App.tsx`.
+- **Verified** in Chromium, with the window's focus simulated by
+  overriding `document.hasFocus`, and real CLI writes:
+  - a change while focused leaves the title alone
+  - a change while away flashes, then settles on `●`
+  - a second project's change flashes and settles on `● (2)`
+  - focus clears the open project; visiting the other clears the rest
+  - the Projects page title
+  - the favicon is the logo, as SVG
 
 Electron is not required. A local page in a pinned browser tab is the same
 experience with none of the packaging.

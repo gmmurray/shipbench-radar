@@ -110,8 +110,10 @@ record it under "Pending upstream" in DESIGN.md if Radar depends on it.
 - Boards stay mounted once opened; inactive ones are hidden with the `hidden`
   attribute, never `visibility` or off-screen positioning. The board
   (0.6.0+) skips keyboard shortcuts only for boards hidden by `hidden` or
-  `display: none`. Only the visible board gets `documentTitle`. See
-  DESIGN.md, "Mounting".
+  `display: none`. See DESIGN.md, "Mounting".
+- Radar owns the browser tab's title (`titleFor()` in `src/web/title.ts`);
+  boards never get `documentTitle`, and pages don't set `document.title`
+  themselves.
 - One multiplexed SSE stream for all projects, never one per project, because
   of the browser's six-connection-per-origin limit. The browser side shares
   one `EventSource` (`src/web/events.ts`).

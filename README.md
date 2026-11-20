@@ -20,6 +20,10 @@ and every change it makes lands in that repository's files, exactly as
 - **Register everything, show what's active.** Close a tab to hide its
   project; it stays registered and watched, and reopens from the Projects
   menu, which marks hidden projects that changed.
+- **A browser tab that tells you what changed.** It carries ShipBench's
+  icon, and while you're in another window its title flashes the project
+  that changed, then keeps a `●` (with a count for several projects) until
+  you look.
 - **Live updates.** When an agent, the CLI, or an editor changes a project's
   tasks, its board updates in place. Other tabs get a dot, so you can see which
   projects changed while you were looking elsewhere.

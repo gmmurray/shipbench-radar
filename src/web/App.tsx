@@ -21,6 +21,7 @@ import {
   ProjectsPage,
   RepairForm,
 } from './ProjectsPage.tsx';
+import { titleFor } from './title.ts';
 
 type LoadState =
   | { status: 'loading' }
@@ -46,6 +47,9 @@ function hrefFor(key: string): string {
 
 /** How long the "Hidden · Undo" message stays up after closing a tab. */
 const UNDO_MS = 6000;
+
+/** How long the title announces a change before settling on the dot. */
+const FLASH_MS = 3000;
 
 // The last project on screen, for a visit with no hash (the launcher's `o`
 // opens the bare URL). A per-browser convenience, so browser storage; it may
@@ -90,6 +94,10 @@ export function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const hashKey = useSyncExternalStore(subscribeToHash, readHashKey);
   const [unread, setUnread] = useState<ReadonlySet<string>>(() => new Set());
+  // The browser tab's title reports changes made while the window was in
+  // the background; see `titleFor`.
+  const [activeUnseen, setActiveUnseen] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
 
   // Re-read the list whenever something may have changed a project's name
   // (config.json) or availability. A failed re-read keeps the last good list.
@@ -122,6 +130,18 @@ export function App() {
   const projects = state.status === 'ready' ? state.list.projects : [];
   const active = onProjectsPage ? undefined : pickProject(projects, hashKey);
   const activeKey = active?.key ?? null;
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+
+  // Radar owns the browser tab's title; the boards' own titling is off.
+  const title = titleFor({
+    label: onProjectsPage ? 'Projects' : (active?.name ?? active?.key ?? null),
+    unseen: unread.size + (activeUnseen ? 1 : 0),
+    flash,
+  });
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
 
   // The stream listener outlives renders, so it reads the active key from a
   // ref rather than a stale closure.
@@ -136,15 +156,42 @@ export function App() {
   useEffect(
     () =>
       subscribeToProjectChanges(key => {
+        const away = !document.hasFocus();
         if (key !== activeKeyRef.current) {
           setUnread(previous =>
             previous.has(key) ? previous : new Set(previous).add(key),
           );
+        } else if (away) {
+          // The open project changed while the window was in the background:
+          // nothing on the page marks that, so the title does.
+          setActiveUnseen(true);
+        }
+        if (away) {
+          const project = projectsRef.current.find(p => p.key === key);
+          setFlash(project?.name ?? key);
         }
         refresh();
       }),
     [refresh],
   );
+
+  // Coming back to the window has seen the open project's change.
+  useEffect(() => {
+    const onFocus = () => {
+      setActiveUnseen(false);
+      setFlash(null);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+  useEffect(() => {
+    if (activeKey) setActiveUnseen(false);
+  }, [activeKey]);
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flash]);
 
   // The registry changed: `pnpm radar`, the Projects page, or a hand edit.
   useEffect(() => subscribeToRegistryChanges(refresh), [refresh]);
@@ -303,7 +350,7 @@ export function App() {
       <div className="radar-board">
         {mountedBoards.map(key => (
           <div key={key} hidden={key !== boardKey}>
-            <BoardHost projectKey={key} visible={key === boardKey} />
+            <BoardHost projectKey={key} />
           </div>
         ))}
         {content}
@@ -491,17 +538,11 @@ function RegistryProblem({ message }: { message: string }) {
   );
 }
 
-function BoardHost({
-  projectKey,
-  visible,
-}: {
-  projectKey: string;
-  visible: boolean;
-}) {
+function BoardHost({ projectKey }: { projectKey: string }) {
   // Stable per project: the board rebuilds its store whenever `api` changes.
   const api = useMemo(() => createProjectApi(projectKey), [projectKey]);
-  // Only the visible board names the browser tab.
-  return <Board api={api} documentTitle={visible} />;
+  // `documentTitle` stays off: App owns the browser tab's title (`titleFor`).
+  return <Board api={api} />;
 }
 
 function Notice({ title, children }: { title: string; children: ReactNode }) {

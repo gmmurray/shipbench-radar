@@ -43,14 +43,6 @@ export function ProjectsPage({
   const shown = list.projects.filter(p => !p.hidden);
   const hidden = list.projects.filter(p => p.hidden);
 
-  useEffect(() => {
-    const previous = document.title;
-    document.title = 'Projects — Radar';
-    return () => {
-      document.title = previous;
-    };
-  }, []);
-
   function chooseSuggestion(path: string) {
     setAddPath(path);
     pathInput.current?.focus();
