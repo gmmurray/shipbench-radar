@@ -15,8 +15,9 @@ and every change it makes lands in that repository's files, exactly as
 
 ## What it does
 
-- **One tab per project.** The URL names the open project (`#/my-repo`), so a
-  pinned browser tab reopens where you left it.
+- **One tab per project.** The URL names the open project and task
+  (`#/my-repo/fix-the-thing`), so a reload, a pinned tab, a bookmark, or the
+  browser's back button takes you back to it.
 - **Register everything, show what's active.** Close a tab to hide its
   project; it stays registered and watched, and reopens from the Projects
   menu, which marks hidden projects that changed.

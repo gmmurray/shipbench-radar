@@ -111,6 +111,10 @@ record it under "Pending upstream" in DESIGN.md if Radar depends on it.
   attribute, never `visibility` or off-screen positioning. The board
   (0.6.0+) skips keyboard shortcuts only for boards hidden by `hidden` or
   `display: none`. See DESIGN.md, "Mounting".
+- The URL hash is `#/project[/task]` (`src/web/route.ts`). Each board's
+  `navigation` (made once per project in `App.tsx`) keeps it in step; only
+  the board on screen writes the URL. Don't pass the board a `back` hook:
+  history is shared across projects.
 - Radar owns the browser tab's title (`titleFor()` in `src/web/title.ts`);
   boards never get `documentTitle`, and pages don't set `document.title`
   themselves.
@@ -140,7 +144,9 @@ record it under "Pending upstream" in DESIGN.md if Radar depends on it.
   watched; only the tab bar and board mounting skip them. Opening a hidden
   project by `#/key` restores its tab.
 - Tests that need a live server use `startRadar({ port: 0, ... })` and the
-  helpers in `src/server/testSupport.ts`.
+  helpers in `src/server/testSupport.ts`. Tests that scaffold a project pass
+  `SHIPBENCH_VERSION` from there to `initProject`; it's read from Radar's own
+  `@shipbench/core` pin, so it never needs editing on upgrade.
 
 ## Environment
 

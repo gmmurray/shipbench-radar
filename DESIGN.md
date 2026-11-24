@@ -1,7 +1,7 @@
 # Radar — design notes
 
 Status: v1 (M0–M3) done 2026-09-23; launcher and Projects page done
-2026-09-24 (see "After v1"); on ShipBench 0.10.0 since 2026-11-20. Written
+2026-09-24 (see "After v1"); on ShipBench 0.11.0 since 2026-11-23. Written
 2026-09-21 against
 ShipBench `core` / `board` / `cli` at 0.4.0; revised 2026-09-23 after reading
 the board, core, and CLI source for the questions in the mounting, event,
@@ -98,7 +98,7 @@ switching costs a click with no port, no child process, and no cold start.
 
 ## What the published packages already provide
 
-Verified against the ShipBench repository at 0.4.0, and still true at 0.10.0:
+Verified against the ShipBench repository at 0.4.0, and still true at 0.11.0:
 
 - `createBoardRequestHandler(adapter, bundleDir, warn)` in the CLI holds no
   module-global state, so N boards in one process needs no contortion. It is
@@ -195,6 +195,29 @@ gained `taskLinkTargets` and `tasksLinkingTo`, and the board resolves bare
 board. The CLI's `boardServer.ts` and the board's `standalone.tsx` were
 unchanged since 0.9.0, so there was nothing to mirror. The `wireFields`
 export suggested under "Pending upstream" hasn't landed yet.
+
+What 0.11.0 changed for Radar (upgraded 2026-11-23):
+
+- **Breaking in core:** `initProject` requires a `version`, which it stamps
+  into the scaffolded README and AGENTS.md. Radar calls it only in tests,
+  which now pass `SHIPBENCH_VERSION` from `testSupport.ts`, read from
+  Radar's own exact `@shipbench/core` pin so it follows every upgrade.
+- **Board, nothing to adapt:** GitHub Flavored Markdown in task text,
+  Ctrl+Enter to save a Task Update, and a "Back to …" trail after following
+  task links all work inside the board.
+- **New, and adopted the same day:** a `navigation` option lets a host
+  keep the open task in its own URL (`?task=` in `shipbench board`). Radar
+  uses it for `#/project/task` URLs; see "Task URLs" under "Interface".
+- **Mirrored files:** `standalone.tsx` changed only to wire in that
+  navigation; `boardServer.ts` was unchanged. `wireFields` is still
+  unexported, so that "Pending upstream" item stays open.
+- Browser re-check against board 0.11.0:
+  - a short board fits; on a long board, the header stays pinned under the
+    tab bar
+  - the detail sidebar sits under both bars
+  - a task open on a hidden board survives keys on another
+  - the title and favicon behave as before
+  - no console errors
 
 One constraint that rules out a cheaper design: the shipped standalone bundle
 hardcodes root-absolute `/api/...` paths. The hardcoding lives only in
@@ -392,6 +415,44 @@ changed.
 Unread markers are in-memory for now: a restart clears them. If they need to
 survive restarts, the last-seen state is derived data and goes in the cache
 file, never in the registry.
+
+**Task URLs** (2026-11-23, using board 0.11.0's `navigation` option). The
+hash names the open task as well as the project: `#/shipbench/fix-the-thing`.
+Task slugs can't contain `/`, which core enforces, so the split is
+unambiguous. Parsing and building live in `src/web/route.ts`
+(unit-tested).
+- **Reload, browser back and forward, bookmarks, and typed URLs** all reach
+  a task. Opening a task or following a task link pushes a history entry;
+  `j`/`k` replace the current one, as the board asks.
+- **One navigation object per project,** made when its board first mounts.
+  Its initial task and trail are getters, so a board that remounts after
+  its project was hidden reads the URL as it is then. Every board reports
+  its open task, but only the board on screen writes the URL; a hidden
+  board's change is just remembered.
+- **Tab links carry each project's open task,** so switching projects puts
+  the right task back in the URL. Hidden projects' menu links don't, since
+  their boards aren't mounted.
+- **History entries record** `{ radarProject, radarTask, trail }`, so the
+  board's "Back to …" trail survives a reload and a return through browser
+  history.
+- **Rejected: the option's `back` hook,** which hands the board's in-app
+  "Back to …" over to the host's history. Radar's history is shared by
+  every project, so going back a step could land on another project.
+  Without the hook, the board walks its own trail and reports each step,
+  which lands in history like any other navigation.
+- **An unknown task** in the URL falls back to the board, and the URL is
+  corrected to the project.
+- **Verified** in Chromium:
+  - opening a task names it in the URL, and a reload keeps it
+  - `j` changes the task without adding a history entry
+  - Escape returns the URL to the project; back and forward reopen and
+    close the task
+  - another project's tab shows its own URL, and the first tab's link
+    carries its open task
+  - back across projects works in both directions
+  - a typed task URL opens it
+  - an unknown task falls back
+  - no console errors
 
 **The browser tab carries the same signal** (2026-11-20), because the tab
 strip is all you see of Radar while working in another window.

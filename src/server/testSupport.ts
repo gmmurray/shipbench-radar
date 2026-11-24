@@ -1,7 +1,17 @@
+import { readFileSync } from 'node:fs';
 import { type IncomingHttpHeaders, request } from 'node:http';
 
 // Helpers for tests that talk to a real Radar over HTTP. Not a test file
 // itself (Vitest only collects *.test.ts).
+
+/**
+ * The ShipBench version Radar ships with: its exact `@shipbench/core` pin.
+ * `initProject` (core 0.11.0+) stamps it into the scaffolded README and
+ * AGENTS.md of the scratch projects tests create.
+ */
+export const SHIPBENCH_VERSION: string = JSON.parse(
+  readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'),
+).dependencies['@shipbench/core'];
 
 export interface Reply {
   status: number;

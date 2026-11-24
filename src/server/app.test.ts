@@ -15,6 +15,7 @@ import { type RunningRadar, startRadar } from './radar.ts';
 import {
   JSON_HEADERS,
   openEventStream as openStream,
+  SHIPBENCH_VERSION,
   sendJson,
   send as sendTo,
   TASK_FILE,
@@ -50,9 +51,15 @@ beforeAll(async () => {
   const webDir = join(root, 'web');
 
   await mkdir(alphaPath);
-  await initProject(new FsAdapter(alphaPath), { name: 'Alpha' });
+  await initProject(new FsAdapter(alphaPath), {
+    name: 'Alpha',
+    version: SHIPBENCH_VERSION,
+  });
   await mkdir(betaPath);
-  await initProject(new FsAdapter(betaPath), { name: 'Beta' });
+  await initProject(new FsAdapter(betaPath), {
+    name: 'Beta',
+    version: SHIPBENCH_VERSION,
+  });
   await mkdir(bareRepoPath);
   await mkdir(webDir);
   await writeFile(

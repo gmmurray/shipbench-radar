@@ -1,4 +1,4 @@
-import { Board } from '@shipbench/board';
+import { Board, type BoardNavigation } from '@shipbench/board';
 import {
   type ReactNode,
   useCallback,
@@ -21,6 +21,12 @@ import {
   ProjectsPage,
   RepairForm,
 } from './ProjectsPage.tsx';
+import {
+  hrefFor,
+  parseHash,
+  type RouteState,
+  trailFromState,
+} from './route.ts';
 import { titleFor } from './title.ts';
 
 type LoadState =
@@ -28,21 +34,21 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; list: ProjectList };
 
-// The URL hash names the active project (`#/shipbench`), so a reload or a
-// pinned tab lands on the same board. Tabs are links that set it.
-// `#/_projects` is the Projects page; keys can't contain `_`.
+// The URL hash names the open project and its open task (src/web/route.ts).
 function readHashKey(): string | null {
-  const match = /^#\/(.+)$/.exec(window.location.hash);
-  return match ? decodeURIComponent(match[1]!) : null;
+  return parseHash(window.location.hash).key;
 }
 
+// A board's own navigation writes the URL with pushState, which fires no
+// event; back and forward fire popstate, and typed or linked URLs fire
+// hashchange.
 function subscribeToHash(onChange: () => void): () => void {
   window.addEventListener('hashchange', onChange);
-  return () => window.removeEventListener('hashchange', onChange);
-}
-
-function hrefFor(key: string): string {
-  return `#/${encodeURIComponent(key)}`;
+  window.addEventListener('popstate', onChange);
+  return () => {
+    window.removeEventListener('hashchange', onChange);
+    window.removeEventListener('popstate', onChange);
+  };
 }
 
 /** How long the "Hidden · Undo" message stays up after closing a tab. */
@@ -132,6 +138,93 @@ export function App() {
   const activeKey = active?.key ?? null;
   const projectsRef = useRef(projects);
   projectsRef.current = projects;
+
+  // Each board's open task, as its navigation last reported it. Tab links
+  // carry it, so switching back to a project keeps its task in the URL.
+  const [openTasks, setOpenTasks] = useState<
+    Readonly<Record<string, string | null>>
+  >({});
+  const openTasksRef = useRef(openTasks);
+  openTasksRef.current = openTasks;
+  // Per mounted board, the function that opens a task on the host's behalf.
+  const selectors = useRef(
+    new Map<string, (task: string | null, trail?: readonly string[]) => void>(),
+  );
+  // One navigation object per project, made when its board first mounts.
+  const navigations = useRef(new Map<string, BoardNavigation>());
+  const navigationFor = useCallback((key: string): BoardNavigation => {
+    const existing = navigations.current.get(key);
+    if (existing) return existing;
+    const taskInUrl = () => {
+      const route = parseHash(window.location.hash);
+      return route.key === key ? route.task : null;
+    };
+    const navigation: BoardNavigation = {
+      // Getters, read when the board builds its store: a board that unmounts
+      // (its project hidden) and mounts again starts from the URL as it is
+      // then, not as it was the first time.
+      get initialTaskSlug() {
+        return taskInUrl();
+      },
+      get initialTrail() {
+        return trailFromState(window.history.state, key, taskInUrl());
+      },
+      onSelectedTaskChange(task, { push, trail }) {
+        setOpenTasks(previous =>
+          previous[key] === task ? previous : { ...previous, [key]: task },
+        );
+        // Only the board on screen owns the URL. A hidden board's change (a
+        // task archived while it was hidden) is remembered for its tab link.
+        if (parseHash(window.location.hash).key !== key) return;
+        const state: RouteState = {
+          radarProject: key,
+          radarTask: task,
+          trail: [...trail],
+        };
+        const url = hrefFor(key, task);
+        if (push) window.history.pushState(state, '', url);
+        else window.history.replaceState(state, '', url);
+      },
+      // No `back`: history is shared by every project, so "back one step"
+      // could land on another project. The board walks its own trail and
+      // reports each step, which lands in history like any other.
+      subscribe(select) {
+        selectors.current.set(key, select);
+        return () => {
+          selectors.current.delete(key);
+          // Unmounted: its tab no longer has an open task to return to.
+          setOpenTasks(previous => {
+            if (!(key in previous)) return previous;
+            const { [key]: _gone, ...rest } = previous;
+            return rest;
+          });
+        };
+      },
+    };
+    navigations.current.set(key, navigation);
+    return navigation;
+  }, []);
+
+  // Back, forward, a typed URL, or a bookmark: open the task the URL names on
+  // that project's board, if it's mounted and showing something else.
+  useEffect(() => {
+    const follow = (event?: Event) => {
+      const { key, task } = parseHash(window.location.hash);
+      if (!key) return;
+      const select = selectors.current.get(key);
+      if (!select || (openTasksRef.current[key] ?? null) === task) return;
+      setOpenTasks(previous => ({ ...previous, [key]: task }));
+      const state =
+        event instanceof PopStateEvent ? event.state : window.history.state;
+      select(task, trailFromState(state, key, task));
+    };
+    window.addEventListener('popstate', follow);
+    window.addEventListener('hashchange', follow);
+    return () => {
+      window.removeEventListener('popstate', follow);
+      window.removeEventListener('hashchange', follow);
+    };
+  }, []);
 
   // Radar owns the browser tab's title; the boards' own titling is off.
   const title = titleFor({
@@ -342,6 +435,7 @@ export function App() {
       <TabBar
         projects={list.projects}
         activeKey={activeKey}
+        openTasks={openTasks}
         onProjectsPage={onProjectsPage}
         unread={unread}
         onHide={hideProject}
@@ -350,7 +444,7 @@ export function App() {
       <div className="radar-board">
         {mountedBoards.map(key => (
           <div key={key} hidden={key !== boardKey}>
-            <BoardHost projectKey={key} />
+            <BoardHost projectKey={key} navigation={navigationFor(key)} />
           </div>
         ))}
         {content}
@@ -378,12 +472,15 @@ function ChangeDot() {
 function TabBar({
   projects,
   activeKey,
+  openTasks,
   onProjectsPage,
   unread,
   onHide,
 }: {
   projects: ProjectSummary[];
   activeKey: string | null;
+  /** Each project's open task, so a tab returns to it. */
+  openTasks: Readonly<Record<string, string | null>>;
   onProjectsPage: boolean;
   unread: ReadonlySet<string>;
   onHide: (key: string) => void;
@@ -401,7 +498,7 @@ function TabBar({
           return (
             <div key={project.key} className="radar-tab-wrap">
               <a
-                href={hrefFor(project.key)}
+                href={hrefFor(project.key, openTasks[project.key])}
                 className="radar-tab"
                 aria-current={project.key === activeKey ? 'page' : undefined}
                 data-unavailable={project.available ? undefined : ''}
@@ -538,11 +635,18 @@ function RegistryProblem({ message }: { message: string }) {
   );
 }
 
-function BoardHost({ projectKey }: { projectKey: string }) {
+function BoardHost({
+  projectKey,
+  navigation,
+}: {
+  projectKey: string;
+  /** Keeps the open task in Radar's URL; stable per project. */
+  navigation: BoardNavigation;
+}) {
   // Stable per project: the board rebuilds its store whenever `api` changes.
   const api = useMemo(() => createProjectApi(projectKey), [projectKey]);
   // `documentTitle` stays off: App owns the browser tab's title (`titleFor`).
-  return <Board api={api} />;
+  return <Board api={api} navigation={navigation} />;
 }
 
 function Notice({ title, children }: { title: string; children: ReactNode }) {

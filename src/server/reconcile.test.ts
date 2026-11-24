@@ -10,6 +10,7 @@ import { addRegistryEntry, removeRegistryEntry } from './registryFile.ts';
 import {
   type EventStream,
   openEventStream,
+  SHIPBENCH_VERSION,
   send,
   TASK_FILE,
   waitFor,
@@ -26,7 +27,7 @@ let stream: EventStream;
 async function makeProject(name: string): Promise<string> {
   const path = join(root, name);
   await mkdir(path);
-  await initProject(new FsAdapter(path), { name });
+  await initProject(new FsAdapter(path), { name, version: SHIPBENCH_VERSION });
   return path;
 }
 

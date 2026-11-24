@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { FsAdapter, initProject } from '@shipbench/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadRegistry } from '../server/registry.ts';
+import { SHIPBENCH_VERSION } from '../server/testSupport.ts';
 import { runCli } from './commands.ts';
 
 let root: string;
@@ -52,7 +53,10 @@ async function makeRepo(
     ]);
   }
   if (options.shipbench !== false) {
-    await initProject(new FsAdapter(path), { name });
+    await initProject(new FsAdapter(path), {
+      name,
+      version: SHIPBENCH_VERSION,
+    });
   }
   return path;
 }

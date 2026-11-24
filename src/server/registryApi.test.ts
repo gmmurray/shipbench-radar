@@ -13,7 +13,7 @@ import type {
 import { type RunningRadar, startRadar } from './radar.ts';
 import { loadRegistry } from './registry.ts';
 import { addRegistryEntry } from './registryFile.ts';
-import { send, sendJson, waitFor } from './testSupport.ts';
+import { SHIPBENCH_VERSION, send, sendJson, waitFor } from './testSupport.ts';
 
 // The Projects page's API against a live server and real git checkouts.
 // Tests run in order and build on each other's registry state.
@@ -41,7 +41,10 @@ async function makeRepo(
     ]);
   }
   if (options.shipbench !== false) {
-    await initProject(new FsAdapter(path), { name });
+    await initProject(new FsAdapter(path), {
+      name,
+      version: SHIPBENCH_VERSION,
+    });
   }
   paths[name] = path;
   return path;
